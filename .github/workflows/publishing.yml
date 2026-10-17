@@ -1,0 +1,136 @@
+name: Publishing
+
+# CLAUDE.md section 34. Runs more frequently than the nightly pipeline
+# to keep the publishing queue topped up:
+#
+#   check queue -> emergency generate+render if critically low ->
+#   publish/schedule missing content -> check queue again
+#
+# "Retry failures" (section 34) happens inside `ghostcash publish`
+# itself, not as a separate step here - publishing.py already skips
+# content with an existing successful `published_posts` row
+# (idempotency, section 57) and records per-platform failures without
+# aborting the batch, so simply running `ghostcash publish` again on
+# the next schedule IS the retry.
+#
+# This now does real work because data/ghostcash.db persists across
+# runs via a GitHub Actions cache (see nightly.yml's header for the
+# full reasoning on persistence and the shared `concurrency.group`
+# that keeps this from racing nightly/analytics/healthcheck over the
+# same cached database).
+#
+# No `ghostcash backup` step here (section 58: "before every major
+# mutation") - nightly.yml already takes one daily snapshot before its
+# own, larger mutation pass, and backup.py's retention policy buckets
+# by calendar day, so running it again every 4 hours would only ever
+# keep the day's *last* run's snapshot anyway while still paying the
+# full backup+compress cost 6x a day for nothing kept. One backup/day
+# is enough for an MVP at this write volume.
+
+on:
+  schedule:
+    - cron: "0 */4 * * *" # every 4 hours
+  workflow_dispatch: {}
+
+concurrency:
+  group: ghostcash-db-state
+
+jobs:
+  publishing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore persisted database + backups
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            data/ghostcash.db
+            data/backups
+          key: ghostcash-data-${{ github.run_id }}
+          restore-keys: |
+            ghostcash-data-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies (ffmpeg with libflite, fonts)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+
+      - name: Install GhostCash
+        run: pip install -e ".[dev]"
+
+      - name: Prepare local config (first run only)
+        run: cp -n config/config.example.yaml config/config.yaml || true
+
+      # `secrets` cannot be referenced inside an `if:` expression at all
+      # (see nightly.yml's matching step for the full citation) - route
+      # it through env: and a step output instead.
+      - name: Determine which integrations are configured
+        id: secrets_check
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+        run: |
+          echo "has_ai_key=$([ -n "$AI_API_KEY" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "has_buffer_key=$([ -n "$BUFFER_API_KEY" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Health check
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          GUMROAD_API_KEY: ${{ secrets.GUMROAD_API_KEY }}
+        run: |
+          ghostcash init
+          ghostcash health
+
+      # Checks the queue before deciding whether an emergency generation
+      # pass is worth running. `continue-on-error` because a low reading
+      # here should trigger the emergency step below, not fail the job -
+      # the job's pass/fail signal is the *second* queue check, after
+      # this run has had a chance to actually fix it.
+      - name: Check publishing queue
+        id: queue_before
+        continue-on-error: true
+        run: ghostcash queue
+
+      # Emergency content generation (section 22: "If queue falls below
+      # 3 days, trigger emergency content generation"). Skips cleanly if
+      # AI_API_KEY isn't configured, or if the queue isn't actually low.
+      - name: Emergency generation if queue is critically low
+        if: steps.secrets_check.outputs.has_ai_key == 'true' && steps.queue_before.outputs.below_emergency == 'true'
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+        run: |
+          ghostcash generate
+          ghostcash render
+
+      # Publish/schedule whatever is READY. Buffer DRAFTS by default
+      # (section 52) - see nightly.yml's matching step for the same note.
+      - name: Publish/schedule missing content
+        if: steps.secrets_check.outputs.has_buffer_key == 'true'
+        env:
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ghostcash publish
+
+      # Final queue check (section 22: "If queue falls below 1 day, send
+      # an alert"). Not continue-on-error - this is the step whose exit
+      # code is this job's real pass/fail signal. No NotificationProvider
+      # exists yet (section 38), so a failed scheduled run, which GitHub
+      # notifies the repo's watchers/owners about by default, is the
+      # real alert mechanism available today.
+      - name: Check publishing queue again
+        run: ghostcash queue
+
+      - name: Persist database + backups for the next run
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            data/ghostcash.db
+            data/backups
+          key: ghostcash-data-${{ github.run_id }}

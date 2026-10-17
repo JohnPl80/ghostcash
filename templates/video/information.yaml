@@ -1,0 +1,35 @@
+# Template A - Information (CLAUDE.md section 17)
+#
+#   HOOK -> POINT 1 -> POINT 2 -> POINT 3 -> CTA
+#
+# The scene structure itself is fixed in Python (video/renderer.py) -
+# what's configurable here, without touching code, is how it looks.
+
+description: "Hook, 2-3 supporting points, then a call to action."
+
+colors:
+  # Cycled across the HOOK + POINT scenes, in order (repeats if there
+  # are more scenes than colors).
+  background:
+    - "#0B1D3A"
+    - "#14284A"
+    - "#1D355A"
+  # The CTA scene always gets its own distinct color, so it visually
+  # stands out as "the ask".
+  cta_background: "#F2B441"
+  text: "#FFFFFF"
+
+font:
+  path: /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+  family: DejaVu Sans
+  size: 64
+  subtitle_size: 40
+
+transition:
+  duration_seconds: 0.3
+
+# How many POINT scenes to generate, bounded by however much source
+# material (visual_sequence / script) is actually available.
+points:
+  min: 2
+  max: 3

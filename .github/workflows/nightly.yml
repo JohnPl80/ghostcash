@@ -1,0 +1,222 @@
+name: Nightly Pipeline
+
+# CLAUDE.md section 33. Runs the content side of the nightly pipeline:
+#
+#   1. health check
+#   2. database backup                          (section 58)
+#   3. retrieve current queue                    (section 22)
+#   5b. autonomous optimization (weekly)          (Phase 11, sections 30-32, 50-51)
+#   6. generate topics        \
+#   7. score topics            } all one call: `ghostcash generate`
+#   8. generate content        } (Phase 2-3)
+#   9. quality control        /
+#  10. render videos                             (Phase 4)
+#  11. schedule/publish content                   (Phase 6)
+#  12. detect product opportunities               (Phase 8)
+#  13. generate daily report                      (Phase 9)
+#  14. send alerts if required  - the final queue check below
+#
+# Steps 4-5 ("retrieve analytics" / "analyze winners") are deliberately
+# run in analytics.yml instead, not here - see that workflow's header
+# for why (short version: Buffer's post metrics barely move within a
+# few hours of publishing, and polling the same posts twice a day from
+# two separate workflows would be exactly the "excessive API calls"
+# section 35 says to avoid). "Sync product sales" (Gumroad orders,
+# also "retrieve analytics" in spirit) lives there too for the same
+# reason.
+#
+# Step 5b (`ghostcash optimize` - section 50's "update category/hook/
+# template weights" + winner replication + experiment evaluation) runs
+# here, right before content generation, so freshly-learned weights
+# from analytics.yml's most recent pass actually influence tonight's
+# `ghostcash generate` (section 50's own loop ends in "generate new
+# content"). It is self-gating on `optimization.interval_days` (default
+# 7 - section 50 says "every week"), so most nights this is a fast,
+# zero-AI-cost no-op; see cli/commands/optimize.py.
+#
+# PERSISTENCE: GitHub-hosted runners are ephemeral - data/ghostcash.db
+# does not exist on a fresh runner. It's restored from a GitHub Actions
+# cache entry at the start of this job and saved back at the end
+# (`if: always()`, so a run that fails partway through - e.g. a flaky
+# Gemini call - still keeps its backup and whatever it already
+# recorded, rather than losing that progress). Each run saves under a
+# unique key (`ghostcash-data-${{ github.run_id }}`); `restore-keys`
+# then pulls the most recently saved entry on the next run. This is
+# the documented workaround for the fact that actions/cache will not
+# overwrite an existing key - see
+# https://github.com/actions/cache/blob/main/tips-and-workarounds.md.
+#
+# The live database is NOT committed back to git: `orders` records a
+# real customer email per sale (section 27), and a public repository's
+# git history is permanent - that must never happen (same reasoning as
+# ghostcash/backup.py's docstring for why backups also stay out of
+# git). A GitHub Actions cache entry is scoped to the repo and only
+# reachable by workflows with access to it, not world-readable the way
+# a git blob or a release asset would be on a public repo.
+#
+# CONCURRENCY: nightly/publishing/analytics/healthcheck all read and
+# write the same cached data/ghostcash.db. SQLite is single-writer and
+# nothing here takes an application-level lock across workflow runs,
+# so two of these jobs racing would be a real "last save wins" data
+# loss. All four workflows share the same `concurrency.group` below so
+# GitHub Actions itself serializes them - only one runs at a time,
+# others queue - which is enough given this system's modest schedule
+# (once/day, every 4h, once/day, hourly) without building real
+# distributed locking for an MVP.
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # once per day
+  workflow_dispatch: {}
+
+concurrency:
+  group: ghostcash-db-state
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore persisted database + backups
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            data/ghostcash.db
+            data/backups
+          key: ghostcash-data-${{ github.run_id }}
+          restore-keys: |
+            ghostcash-data-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies (ffmpeg with libflite, fonts)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+
+      - name: Install GhostCash
+        run: pip install -e ".[dev]"
+
+      - name: Prepare local config (first run only)
+        run: cp -n config/config.example.yaml config/config.yaml || true
+
+      # The `secrets` context cannot be used inside an `if:` expression
+      # at all (not documented under either jobs.<job_id>.if or
+      # jobs.<job_id>.steps[*].if - see
+      # https://docs.github.com/en/actions/learn-github-actions/contexts),
+      # so "skip this step if a secret isn't configured yet" has to go
+      # through a secret read into `env:` (which IS allowed) and then an
+      # `if:` on this step's own output instead.
+      - name: Determine which integrations are configured
+        id: secrets_check
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+        run: |
+          echo "has_ai_key=$([ -n "$AI_API_KEY" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "has_buffer_key=$([ -n "$BUFFER_API_KEY" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: 1. Health check
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          GUMROAD_API_KEY: ${{ secrets.GUMROAD_API_KEY }}
+        run: |
+          ghostcash init
+          ghostcash health
+
+      - name: Run test suite
+        run: pytest
+
+      # 2. Database backup (section 58) - "before every major mutation".
+      # Everything below this point mutates the database, so this runs
+      # right after init/health and before any of it.
+      - name: 2. Database backup
+        run: ghostcash backup
+
+      # 3. Retrieve current queue (section 22). Informational here -
+      # nightly always runs a generation pass regardless of queue depth,
+      # so a low reading doesn't need to gate anything yet. The queue
+      # check that actually matters for alerting is the one at the very
+      # end of this job, after publishing has had a chance to help.
+      - name: 3. Check publishing queue (informational)
+        continue-on-error: true
+        run: ghostcash queue
+
+      # 5b. Autonomous optimization (Phase 11, sections 30-32, 50-51).
+      # No `if:` gate on AI_API_KEY here - weight updates and experiment
+      # evaluation work from data already in the database, and only
+      # winner replication itself needs the key (handled internally by
+      # `ghostcash optimize`, same pattern as every other optional
+      # integration in this project: report plainly, proceed with the
+      # rest). Interval-gated to once/week by default - see this step's
+      # own `[skip]`/`[ok]` output in the job log.
+      - name: 5b. Autonomous optimization (weekly)
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+        run: ghostcash optimize
+
+      # Skips cleanly (rather than failing the run) if AI_API_KEY hasn't
+      # been added to the repo's secrets yet.
+      - name: 6-9. Generate topics, generate content, quality control
+        if: steps.secrets_check.outputs.has_ai_key == 'true'
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+        run: ghostcash generate
+
+      - name: 10. Render approved content to video
+        if: steps.secrets_check.outputs.has_ai_key == 'true'
+        run: ghostcash render
+
+      # Skips cleanly if BUFFER_API_KEY or publishing.github_repo aren't
+      # configured yet. Publishes as Buffer DRAFTS by default (section
+      # 52's APPROVAL_REQUIRED) - review and send them yourself in
+      # Buffer until you've validated the pipeline and switch to
+      # AUTONOMOUS in config.yaml.
+      - name: 11. Publish rendered content
+        if: steps.secrets_check.outputs.has_buffer_key == 'true'
+        env:
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ghostcash publish
+
+      # 12. Detect product opportunities (Phase 8). Only ever proposes
+      # - section 24 makes product approval one of the few things that
+      # must stay human, so `products approve`/`products link` are
+      # deliberately NOT run here. A returning owner sees any new
+      # PENDING_APPROVAL opportunities via `ghostcash products list`.
+      - name: 12. Detect product opportunities
+        if: steps.secrets_check.outputs.has_ai_key == 'true'
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+        run: ghostcash products detect
+
+      # 13. Generate daily report (Phase 9). No secrets needed - it only
+      # reads the local database, so it always runs, even on the very
+      # first setup before any API key has been added. This is the
+      # plain-text echo of what the dashboard's Overview page would show;
+      # the dashboard itself (`ghostcash dashboard`) is a foreground,
+      # human-facing local server and is deliberately NOT run here.
+      - name: 13. Generate daily report
+        run: ghostcash report
+
+      # 14. Send alerts if required. GhostCash has no NotificationProvider
+      # yet (section 38, not built in any phase so far) - this final
+      # queue check is the real, zero-setup alert available today: if
+      # the buffer is still below the alert threshold after tonight's
+      # generation/publishing pass, this step (and therefore the job)
+      # fails, and GitHub notifies the repo's watchers/owners by default.
+      - name: 14. Final queue check (alert on low buffer)
+        run: ghostcash queue
+
+      - name: Persist database + backups for the next run
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            data/ghostcash.db
+            data/backups
+          key: ghostcash-data-${{ github.run_id }}

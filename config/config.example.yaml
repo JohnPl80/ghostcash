@@ -1,0 +1,185 @@
+# GhostCash configuration.
+#
+# Copy this file to config/config.yaml and adjust values as needed
+# (`ghostcash init` does this for you automatically).
+# This file holds NON-SECRET settings only. Secrets (API keys/tokens)
+# always come from environment variables / .env - see .env.example.
+
+# Where the SQLite database lives. Overridden by DATABASE_PATH env var.
+database_path: data/ghostcash.db
+
+# Minimum quality_score (0-100) required before content can be published.
+# See CLAUDE.md section 14.
+quality_score_threshold: 80
+
+# `ghostcash health` / the dashboard's /system page flag the system
+# unhealthy if no job has succeeded within this many hours (section 36:
+# "last successful job recent"). 36h gives nightly's once/day cron a
+# full day of slack for a late or retried run before alerting.
+max_job_age_hours: 36
+
+# AI provider settings (section 9-10). api_key/provider/model can also be
+# set via AI_PROVIDER / AI_MODEL / AI_API_KEY / AI_MAX_REQUESTS_PER_RUN /
+# AI_TEMPERATURE environment variables, which take precedence.
+ai:
+  provider: gemini
+  model: ""
+  api_key: ""
+  max_requests_per_run: 20
+  temperature: 0.7
+  # Gemini 3.x models ignore temperature/top_p/top_k (deprecated by
+  # Google) and use thinking effort instead: low / medium / high.
+  # Ignored by other providers.
+  thinking_level: low
+
+# Analytics and Winner Score (sections 28-29). Winner Score weights are
+# redistributed proportionally among whatever components ARE available
+# for a given content item - e.g. Buffer exposes no click/profile-visit
+# metrics today (see README "Analytics" section), so click_through is
+# normally excluded and its weight redistributed across the rest.
+analytics:
+  winner_weights:
+    engagement: 0.25
+    click_through: 0.25
+    revenue: 0.35
+    retention: 0.15
+  # A content item's Winner Score at or above this threshold gets its
+  # status flipped to WINNER (section 29).
+  winner_score_threshold: 0.5
+  # "target" rates: the denominator used to normalize a raw metric into
+  # Winner Score's [0, 1] component scale. Hitting the target rate scores
+  # 1.0 on that component; adjust once you have real baseline data.
+  target_engagement_rate: 10.0 # percent
+  target_click_rate: 5.0 # percent
+  target_revenue_per_1000_views: 5.0 # same currency as product prices
+
+# Product opportunity detection + Gumroad store (sections 23-27).
+# gumroad_api_key is a secret - set it via GUMROAD_API_KEY, not here.
+products:
+  store_provider: gumroad
+  # Section 25's signal is "high views + high clicks + low product
+  # coverage" - no GhostCash platform exposes a click metric (see the
+  # "Analytics" README section), so engagement_rate substitutes for
+  # the "high clicks" half here.
+  opportunity_min_views: 1000
+  opportunity_min_engagement_rate: 5.0 # percent
+
+# Publishing (sections 19-22). buffer_api_key/github_token are secrets -
+# set them via BUFFER_API_KEY / GITHUB_TOKEN env vars, not here.
+publishing:
+  provider: buffer
+  # Most Buffer accounts have exactly one organization, auto-detected.
+  # Set this explicitly only if your account has more than one.
+  organization_id: ""
+  # Buffer's API needs a public, permanent URL for video attachments (it
+  # does not accept file uploads) - see README "Publishing" section for
+  # why github_release is the default (no new external account needed).
+  media_host: github_release
+  github_repo: "" # "owner/repo" - required if media_host is github_release
+  github_release_tag: ghostcash-media
+  posts_per_day: 5
+
+# Topic/content generation quotas and quality control (sections 11, 13-15).
+content:
+  topics_per_run: 20
+  content_per_run: 5
+  max_script_words: 90
+  min_unique_word_ratio: 0.5
+  duplicate_similarity_threshold: 0.85
+  duplicate_check_window: 200
+
+# Opportunity score weights (section 12). Configurable, not permanent.
+scoring_weights:
+  curiosity: 0.20
+  shareability: 0.20
+  commercial: 0.20
+  evergreen: 0.15
+  usefulness: 0.15
+  production_simplicity: 0.10
+  competition_penalty: 0.10
+
+# Monthly budget ceiling in EUR (section 46). Expensive optional operations
+# stop once a category or the total is exceeded; free/local ops continue.
+monthly_budget:
+  ai: 5
+  video: 0
+  automation: 0
+  total: 15
+
+# Human approval gates (section 52).
+# Valid values: AUTONOMOUS, APPROVAL_REQUIRED
+human_approval_mode:
+  content: AUTONOMOUS
+  publishing: APPROVAL_REQUIRED
+  products: APPROVAL_REQUIRED
+
+# Publishing queue buffer targets, in days (section 22).
+queue:
+  target_days: 7
+  emergency_threshold_days: 3
+  alert_threshold_days: 1
+
+# Retry policy for failed jobs (section 37).
+retry:
+  delays_seconds: [30, 120, 600]
+  max_retries: 3
+
+# Backup retention (section 58). `ghostcash backup` writes compressed
+# snapshots to backup_dir (outside git - see .gitignore) and prunes to
+# this retention policy.
+backup:
+  daily_retention: 7
+  weekly_retention: 4
+  backup_dir: data/backups
+
+# Default video render settings (section 16-18).
+video:
+  width: 1080
+  height: 1920
+  format: mp4
+  codec: h264
+  min_duration_seconds: 15
+  max_duration_seconds: 35
+  # TTS: "flite" uses ffmpeg's built-in libflite filter - free, fully
+  # local, no extra dependency beyond ffmpeg itself.
+  tts_provider: flite
+  tts_voice: slt
+  render_per_run: 5
+  output_dir: assets/generated
+  ffmpeg_binary: ffmpeg
+  ffprobe_binary: ffprobe
+
+# Which social platforms are active (section 21). Channel wiring (Buffer
+# channel IDs) is stored in the `platforms` database table, not here.
+platforms:
+  - YOUTUBE
+  - TIKTOK
+  - INSTAGRAM
+
+# Weekly autonomous optimization loop (sections 30-32, 50-51).
+# `ghostcash optimize` only does real work once every interval_days -
+# see ghostcash/optimization/loop.py and cli/commands/optimize.py.
+optimization:
+  interval_days: 7
+  # A category/hook-type/template needs at least this many measured
+  # content items before its learned weight is updated - below that,
+  # one lucky/unlucky video would swing the weight on noise.
+  min_sample_size: 5
+  # Exponential-moving-average blend factor for weight updates: 0 keeps
+  # the previous weight forever, 1 fully replaces it each run.
+  weight_smoothing_alpha: 0.3
+  # Caps AI calls spent on winner replication in a single run (section
+  # 46 cost control) - remaining winners are simply picked up next run.
+  max_winners_replicated_per_run: 3
+  # Section 51 experiments are judged by practical margin, not real
+  # statistical significance - this project's content volume is too low
+  # for that to be meaningful. Both sides of a comparison need at least
+  # this many views before being judged at all.
+  min_views_for_experiment_evaluation: 200
+  # An experiment that never reaches the view threshold above is closed
+  # out as INCONCLUSIVE after this many days, instead of staying pending
+  # forever.
+  experiment_timeout_days: 21
+  # The winning side must beat the other by at least this relative
+  # fraction to be declared a winner; closer than that is INCONCLUSIVE.
+  practical_significance_threshold: 0.10

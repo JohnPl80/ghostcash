@@ -1,0 +1,40 @@
+# --- Secrets ---
+.env
+*.env
+!.env.example
+
+# --- Local runtime config (generated from config.example.yaml) ---
+config/config.yaml
+
+# --- Database ---
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/backups/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# --- Test / lint / type-check caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+
+# --- Rendered / generated media (large, regenerable) ---
+assets/generated/
+*.mp4

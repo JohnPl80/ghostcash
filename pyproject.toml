@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ghostcash"
+version = "0.1.0"
+description = "Autonomous faceless content -> traffic -> digital product revenue system"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "PyYAML>=6.0.1",
+    "requests>=2.31.0",
+    "Pillow>=10.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+    "mypy>=1.10.0",
+    "types-PyYAML>=6.0.0",
+    "types-requests>=2.31.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+ghostcash = "ghostcash.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ghostcash = ["database/migrations/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# ruff >=0.11 also formats fenced ```python blocks inside Markdown files.
+# CLAUDE.md is the authoritative, user-provided product spec and must
+# never be rewritten by a formatter; README.md's illustrative interface
+# snippets (deliberately abbreviated with `...` bodies) aren't real
+# source either. Excluded from both `ruff format` and `ruff check`.
+extend-exclude = ["CLAUDE.md", "README.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+exclude = ["tests/"]

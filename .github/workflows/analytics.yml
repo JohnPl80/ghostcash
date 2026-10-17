@@ -1,0 +1,106 @@
+name: Analytics
+
+# CLAUDE.md section 35. Collects available metrics daily via
+# `ghostcash analytics` (Phase 7, sections 28-29 - this is also where
+# "analyze winners" happens, in the same call) and syncs Gumroad sales
+# into `orders` via `ghostcash products sync-sales` (Phase 8) - both
+# count as "retrieve analytics" in section 33 step 4's sense, which is
+# why they live here instead of in nightly.yml: running once/day, ~90
+# minutes after nightly's own run has finished publishing, is the
+# caching strategy section 35 asks for ("do not make excessive API
+# calls... use caching") - polling the same Buffer posts again from a
+# second workflow a few hours later would learn almost nothing new and
+# would double the daily call volume for no benefit.
+#
+# Needs the persisted database from nightly.yml's run (the
+# published_posts rows to check, the products to match sales against) -
+# see nightly.yml's header for the full persistence/concurrency design.
+
+on:
+  schedule:
+    - cron: "30 4 * * *" # once per day, ~90 min after the nightly pipeline
+  workflow_dispatch: {}
+
+concurrency:
+  group: ghostcash-db-state
+
+jobs:
+  analytics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore persisted database + backups
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            data/ghostcash.db
+            data/backups
+          key: ghostcash-data-${{ github.run_id }}
+          restore-keys: |
+            ghostcash-data-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies (ffmpeg with libflite, fonts)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+
+      - name: Install GhostCash
+        run: pip install -e ".[dev]"
+
+      - name: Prepare local config (first run only)
+        run: cp -n config/config.example.yaml config/config.yaml || true
+
+      # `secrets` cannot be referenced inside an `if:` expression at all
+      # (see nightly.yml's matching step for the full citation) - route
+      # it through env: and a step output instead.
+      - name: Determine which integrations are configured
+        id: secrets_check
+        env:
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          GUMROAD_API_KEY: ${{ secrets.GUMROAD_API_KEY }}
+        run: |
+          echo "has_buffer_key=$([ -n "$BUFFER_API_KEY" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "has_gumroad_key=$([ -n "$GUMROAD_API_KEY" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Health check
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          GUMROAD_API_KEY: ${{ secrets.GUMROAD_API_KEY }}
+        run: |
+          ghostcash init
+          ghostcash health
+
+      # Skips cleanly if BUFFER_API_KEY hasn't been added yet. Collects
+      # post status/metrics from Buffer, normalizes them (section 28),
+      # and evaluates Winner Score (section 29) for every content item
+      # with performance data.
+      - name: Collect analytics and evaluate Winner Score
+        if: steps.secrets_check.outputs.has_buffer_key == 'true'
+        env:
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+        run: ghostcash analytics
+
+      # Pulls Gumroad sales into `orders` and attributes revenue back to
+      # content - what lets Winner Score's revenue component compute
+      # real numbers. Safe to automate: it only records data, never
+      # creates or approves anything (section 32).
+      - name: Sync product sales
+        if: steps.secrets_check.outputs.has_gumroad_key == 'true'
+        env:
+          GUMROAD_API_KEY: ${{ secrets.GUMROAD_API_KEY }}
+        run: ghostcash products sync-sales
+
+      - name: Persist database + backups for the next run
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            data/ghostcash.db
+            data/backups
+          key: ghostcash-data-${{ github.run_id }}

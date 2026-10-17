@@ -1,0 +1,77 @@
+name: Health Check
+
+# CLAUDE.md section 36. Verifies: database accessible, AI/Buffer/Gumroad
+# API accessible (real connectivity checks, not just "is the secret
+# set" - see ghostcash/health.py), required environment variables
+# present, disk space sufficient, queue healthy, last successful job
+# recent. All of it lives in `ghostcash health` (shared with the Phase
+# 9 dashboard's /system page via ghostcash/health.py's check_system(),
+# so the two can never disagree) - this workflow is a thin scheduler
+# around it, standing in for a NotificationProvider that doesn't exist
+# yet (section 38): a failed run here is a real, zero-setup alert via
+# GitHub's own default workflow-failure notification to the repo's
+# watchers/owners.
+#
+# Runs against the same persisted database as the other three
+# workflows (see nightly.yml's header for the full persistence design
+# and the shared `concurrency.group`) so "last successful job recent"
+# actually reflects real pipeline history instead of an empty,
+# freshly-initialized database every single hour.
+
+on:
+  schedule:
+    - cron: "0 * * * *" # hourly
+  workflow_dispatch: {}
+
+concurrency:
+  group: ghostcash-db-state
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore persisted database + backups
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            data/ghostcash.db
+            data/backups
+          key: ghostcash-data-${{ github.run_id }}
+          restore-keys: |
+            ghostcash-data-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies (ffmpeg with libflite, fonts)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+
+      - name: Install GhostCash
+        run: pip install -e ".[dev]"
+
+      - name: Prepare local config (first run only)
+        run: cp -n config/config.example.yaml config/config.yaml || true
+
+      - name: Run health check
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          GUMROAD_API_KEY: ${{ secrets.GUMROAD_API_KEY }}
+          DATABASE_PATH: data/ghostcash.db
+        run: |
+          ghostcash init
+          ghostcash health
+
+      - name: Persist database for the next run
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            data/ghostcash.db
+            data/backups
+          key: ghostcash-data-${{ github.run_id }}

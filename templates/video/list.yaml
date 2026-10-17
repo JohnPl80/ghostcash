@@ -1,0 +1,32 @@
+# Template B - List (CLAUDE.md section 17)
+#
+#   "3 things..." -> 1 -> 2 -> 3 -> CTA
+#
+# Structurally identical to Information (a hook, N middle scenes, a
+# CTA) - the difference is purely cosmetic: each middle scene gets a
+# numeric prefix ("1.", "2.", "3.") instead of appearing unlabeled.
+# That's handled in Python (video/renderer.py); this file controls
+# look, not structure.
+
+description: "Numbered list intro, then one scene per item, then a CTA."
+
+colors:
+  background:
+    - "#241E4E"
+    - "#33285F"
+    - "#433371"
+  cta_background: "#F2B441"
+  text: "#FFFFFF"
+
+font:
+  path: /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+  family: DejaVu Sans
+  size: 64
+  subtitle_size: 40
+
+transition:
+  duration_seconds: 0.3
+
+points:
+  min: 2
+  max: 3

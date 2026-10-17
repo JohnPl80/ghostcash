@@ -1,0 +1,63 @@
+from __future__ import annotations
+
+from ghostcash.config.schema import Config
+from ghostcash.publishing.queue import get_queue_status
+
+
+def _insert_content(conn, status, count=1):
+    for _ in range(count):
+        conn.execute(
+            "INSERT INTO content (topic, category, status) VALUES ('t', 'AI', ?)", (status,)
+        )
+    conn.commit()
+
+
+def test_queue_status_counts_ready_and_scheduled(migrated_conn):
+    _insert_content(migrated_conn, "READY", 3)
+    _insert_content(migrated_conn, "SCHEDULED", 2)
+    _insert_content(migrated_conn, "DRAFT", 5)  # should not count
+
+    config = Config()
+    config.publishing.posts_per_day = 5
+
+    status = get_queue_status(migrated_conn, config)
+
+    assert status.ready_count == 3
+    assert status.scheduled_count == 2
+    assert status.days_remaining == 1.0  # (3+2)/5
+
+
+def test_queue_status_thresholds(migrated_conn):
+    _insert_content(migrated_conn, "READY", 1)
+    config = Config()
+    config.publishing.posts_per_day = 5
+    config.queue.emergency_threshold_days = 3
+    config.queue.alert_threshold_days = 1
+
+    status = get_queue_status(migrated_conn, config)
+
+    assert status.days_remaining == 0.2
+    assert status.is_below_emergency_threshold is True
+    assert status.is_below_alert_threshold is True
+
+
+def test_queue_status_healthy_queue_has_no_alerts(migrated_conn):
+    _insert_content(migrated_conn, "READY", 20)
+    config = Config()
+    config.publishing.posts_per_day = 5
+
+    status = get_queue_status(migrated_conn, config)
+
+    assert status.days_remaining == 4.0
+    assert status.is_below_emergency_threshold is False
+    assert status.is_below_alert_threshold is False
+
+
+def test_queue_status_guards_against_zero_posts_per_day(migrated_conn):
+    _insert_content(migrated_conn, "READY", 5)
+    config = Config()
+    config.publishing.posts_per_day = 0  # would divide by zero if unguarded
+
+    status = get_queue_status(migrated_conn, config)
+
+    assert status.days_remaining == 5.0  # treated as 1/day minimum

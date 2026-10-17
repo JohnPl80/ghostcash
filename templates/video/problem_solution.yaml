@@ -1,0 +1,28 @@
+# Template C - Problem/Solution (CLAUDE.md section 17)
+#
+#   PROBLEM -> WHY IT HAPPENS -> SOLUTION -> CTA
+#
+# Unlike Information/List, this is always exactly 4 scenes - there's no
+# "points.min/max" here because the shape itself is the whole point of
+# this template. Colors intentionally shift from a "problem" tone to a
+# "solution" tone across the sequence.
+
+description: "A problem, why it happens, the solution, then a call to action."
+
+colors:
+  # One color per fixed scene, in order: PROBLEM, WHY_IT_HAPPENS, SOLUTION.
+  background:
+    - "#3A1220"
+    - "#3A2A12"
+    - "#123A24"
+  cta_background: "#F2B441"
+  text: "#FFFFFF"
+
+font:
+  path: /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+  family: DejaVu Sans
+  size: 60
+  subtitle_size: 40
+
+transition:
+  duration_seconds: 0.3

@@ -1,0 +1,37 @@
+# Initial content categories (CLAUDE.md section 8).
+#
+# This list is a starting point, not a permanent commitment to any niche.
+# The optimization loop (section 50) uses observed performance data to
+# learn which categories perform best over time - it does not need this
+# file to change for that to happen. Add/remove categories here as the
+# system's addressable topic space evolves.
+
+categories:
+  - key: AI
+    label: "AI"
+  - key: AUTOMATION
+    label: "Automation"
+  - key: SOFTWARE
+    label: "Software"
+  - key: WINDOWS
+    label: "Windows"
+  - key: EXCEL
+    label: "Excel"
+  - key: PRODUCTIVITY
+    label: "Productivity"
+  - key: MONEY_SAVING
+    label: "Money Saving"
+  - key: BUSINESS
+    label: "Business"
+  - key: CAREER
+    label: "Career"
+  - key: INTERNET_TOOLS
+    label: "Internet Tools"
+  - key: PSYCHOLOGY
+    label: "Psychology"
+  - key: TECHNOLOGY
+    label: "Technology"
+  - key: INTERESTING_FACTS
+    label: "Interesting Facts"
+  - key: LIFE_HACKS
+    label: "Life Hacks"
