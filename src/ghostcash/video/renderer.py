@@ -336,6 +336,39 @@ def select_approved_content(conn: sqlite3.Connection, limit: int) -> list[Conten
     return [Content.from_row(row) for row in rows]
 
 
+def reset_missing_renders(conn: sqlite3.Connection) -> list[int]:
+    """Send READY content whose video file no longer exists back to be re-rendered.
+
+    GitHub Actions runners start with an empty disk every time, while the
+    database is restored from a cache (see .github/workflows). So a video
+    rendered in one run is gone by the next, yet its row still says READY
+    with a rendered_video_path pointing at nothing. `publish` would pick
+    those rows first (oldest first), fail to find the file, and leave them
+    READY - blocking every newer video behind them.
+
+    The video is fully determined by the stored script and template, so
+    the cure is cheap and local (no AI call): put such rows back to
+    APPROVED with no rendered path, and `render` produces the file again.
+    Only READY rows are touched - SCHEDULED/published content no longer
+    needs its local file. Returns the ids that were reset (oldest first);
+    idempotent, and a no-op when every file is present.
+    """
+    rows = conn.execute(
+        "SELECT id, rendered_video_path FROM content "
+        "WHERE status = 'READY' AND rendered_video_path IS NOT NULL ORDER BY id ASC"
+    ).fetchall()
+    missing_ids = [row[0] for row in rows if not Path(row[1]).exists()]
+    for content_id in missing_ids:
+        conn.execute(
+            "UPDATE content SET status = 'APPROVED', rendered_video_path = NULL, "
+            "rendered_duration_seconds = NULL WHERE id = ? AND status = 'READY'",
+            (content_id,),
+        )
+    if missing_ids:
+        conn.commit()
+    return missing_ids
+
+
 def _mark_rendered(conn: sqlite3.Connection, content_id: int, result: RenderResult) -> None:
     conn.execute(
         "UPDATE content SET status = 'READY', rendered_video_path = ?, "
@@ -369,6 +402,7 @@ def render_batch(
     if requested_count < 1:
         return []
 
+    reset_missing_renders(conn)
     items = select_approved_content(conn, requested_count)
     if not items:
         return []

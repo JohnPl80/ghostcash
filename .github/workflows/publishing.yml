@@ -108,6 +108,18 @@ jobs:
           ghostcash generate
           ghostcash render
 
+      # GitHub runners start with an empty disk and only the database is
+      # restored from the cache, so a video rendered in an earlier run is
+      # gone while its row still says READY. `ghostcash render` first puts
+      # such rows back to APPROVED and then renders them again (local
+      # ffmpeg only - no AI call, no cost); it is a quick no-op when every
+      # file is present. Without this, `publish` (oldest first) would keep
+      # tripping over missing files and block every newer video.
+      - name: Re-render videos that disappeared since an earlier run
+        if: steps.secrets_check.outputs.has_buffer_key == 'true'
+        continue-on-error: true
+        run: ghostcash render
+
       # Publish/schedule whatever is READY. Buffer DRAFTS by default
       # (section 52) - see nightly.yml's matching step for the same note.
       - name: Publish/schedule missing content

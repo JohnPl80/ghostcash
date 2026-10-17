@@ -337,6 +337,37 @@ def test_render_records_a_job(isolated_project: Path):
     assert row == ("render_videos", "SUCCEEDED")
 
 
+def test_render_rerenders_videos_missing_from_an_earlier_run(isolated_project: Path, capsys):
+    """GitHub runners start with an empty disk: a READY row whose file is
+    gone must be rendered again instead of being left stuck."""
+    main(["init"])
+    db_path = isolated_project / "data" / "ghostcash.db"
+    content_id = _insert_approved_content(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE content SET status = 'READY', rendered_video_path = ?, "
+        "rendered_duration_seconds = 20.0 WHERE id = ?",
+        (str(isolated_project / "assets" / "generated" / "vanished.mp4"), content_id),
+    )
+    conn.commit()
+    conn.close()
+    capsys.readouterr()
+
+    exit_code = main(["render", "--count", "1"])
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "1 video file(s) from an earlier run no longer exist" in out
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT status, rendered_video_path FROM content WHERE id = ?", (content_id,)
+    ).fetchone()
+    conn.close()
+    assert row[0] == "READY"
+    assert row[1] is not None
+    assert Path(row[1]).exists()
+
+
 def test_render_fails_cleanly_with_broken_ffmpeg_binary(isolated_project: Path):
     main(["init"])
     config_path = isolated_project / "config" / "config.yaml"

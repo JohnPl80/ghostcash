@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -15,6 +16,7 @@ from ghostcash.video.renderer import (
     _count_available_segments,
     render_batch,
     render_content,
+    reset_missing_renders,
     select_approved_content,
 )
 from ghostcash.video.templates import load_template
@@ -285,3 +287,92 @@ def test_render_batch_marks_failure_without_aborting_batch(migrated_conn, tmp_pa
     }
     assert statuses["bad"] == "FAILED"
     assert statuses["good"] == "READY"
+
+
+# ---------------------------------------------------------------------
+# reset_missing_renders - videos that vanished between GitHub Actions runs
+# ---------------------------------------------------------------------
+
+
+def _insert_rendered_content(conn, path: str, status: str = "READY", title: str = "t") -> int:
+    content_id = _insert_approved_content(conn, title=title, status=status)
+    conn.execute(
+        "UPDATE content SET rendered_video_path = ?, rendered_duration_seconds = 20.0 WHERE id = ?",
+        (path, content_id),
+    )
+    conn.commit()
+    return content_id
+
+
+def test_reset_missing_renders_sends_ready_rows_with_missing_file_back_to_approved(
+    migrated_conn, tmp_path
+):
+    content_id = _insert_rendered_content(migrated_conn, str(tmp_path / "gone.mp4"))
+
+    reset = reset_missing_renders(migrated_conn)
+
+    assert reset == [content_id]
+    row = migrated_conn.execute(
+        "SELECT status, rendered_video_path, rendered_duration_seconds FROM content WHERE id = ?",
+        (content_id,),
+    ).fetchone()
+    assert row["status"] == "APPROVED"
+    assert row["rendered_video_path"] is None
+    assert row["rendered_duration_seconds"] is None
+
+
+def test_reset_missing_renders_leaves_rows_whose_file_exists(migrated_conn, tmp_path):
+    present = tmp_path / "here.mp4"
+    present.write_bytes(b"not a real video, only existence matters")
+    content_id = _insert_rendered_content(migrated_conn, str(present))
+
+    assert reset_missing_renders(migrated_conn) == []
+
+    row = migrated_conn.execute(
+        "SELECT status, rendered_video_path FROM content WHERE id = ?", (content_id,)
+    ).fetchone()
+    assert row["status"] == "READY"
+    assert row["rendered_video_path"] == str(present)
+
+
+def test_reset_missing_renders_only_touches_ready_rows(migrated_conn, tmp_path):
+    gone = str(tmp_path / "gone.mp4")
+    scheduled_id = _insert_rendered_content(migrated_conn, gone, status="SCHEDULED")
+    failed_id = _insert_rendered_content(migrated_conn, gone, status="FAILED")
+
+    assert reset_missing_renders(migrated_conn) == []
+
+    statuses = {
+        row["id"]: row["status"]
+        for row in migrated_conn.execute("SELECT id, status FROM content").fetchall()
+    }
+    assert statuses[scheduled_id] == "SCHEDULED"
+    assert statuses[failed_id] == "FAILED"
+
+
+def test_reset_missing_renders_returns_oldest_first_and_is_idempotent(migrated_conn, tmp_path):
+    first = _insert_rendered_content(migrated_conn, str(tmp_path / "a.mp4"), title="a")
+    second = _insert_rendered_content(migrated_conn, str(tmp_path / "b.mp4"), title="b")
+
+    assert reset_missing_renders(migrated_conn) == [first, second]
+    assert reset_missing_renders(migrated_conn) == []
+
+
+def test_render_batch_rerenders_content_whose_video_vanished(migrated_conn, tmp_path):
+    content_id = _insert_rendered_content(migrated_conn, str(tmp_path / "vanished.mp4"))
+    config = Config()
+    config.video.output_dir = str(tmp_path)
+
+    outcomes = render_batch(migrated_conn, config, count=1)
+
+    assert len(outcomes) == 1
+    content, result, error = outcomes[0]
+    assert error is None
+    assert result is not None
+    assert content.id == content_id
+    row = migrated_conn.execute(
+        "SELECT status, rendered_video_path FROM content WHERE id = ?", (content_id,)
+    ).fetchone()
+    assert row["status"] == "READY"
+    assert row["rendered_video_path"] == result.output_path
+    assert Path(result.output_path).exists()

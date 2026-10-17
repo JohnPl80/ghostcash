@@ -677,6 +677,16 @@ one `concurrency.group` so GitHub Actions serializes them - SQLite is
 single-writer, and nothing here takes an application-level lock across
 separate runs otherwise.
 
+**Rendered videos are NOT persisted** between runs - only the database
+is. A video rendered in one run is gone from the next runner's disk, so
+`ghostcash render` first sends any READY content whose file has
+disappeared back to APPROVED (`video.renderer.reset_missing_renders`)
+and renders it again - local ffmpeg only, no AI call. `nightly.yml`
+renders before it publishes; `publishing.yml` has a dedicated
+"Re-render videos that disappeared" step (only once `BUFFER_API_KEY` is
+set) for the same reason. Without this, `ghostcash publish` (oldest
+first) would keep failing on missing files and block newer videos.
+
 Deliberately **not** wired into any workflow: `products approve`/
 `products link` (section 24 requires a human in the loop for product
 activation - a returning owner sees new `PENDING_APPROVAL` opportunities

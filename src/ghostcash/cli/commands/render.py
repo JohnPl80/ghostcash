@@ -15,7 +15,12 @@ import traceback
 from ghostcash.config.loader import ConfigError, load_config
 from ghostcash.database.connection import get_connection
 from ghostcash.database.jobs import fail_job, start_job, succeed_job
-from ghostcash.video.renderer import RenderError, get_tts_provider, render_batch
+from ghostcash.video.renderer import (
+    RenderError,
+    get_tts_provider,
+    render_batch,
+    reset_missing_renders,
+)
 from ghostcash.video.tts import TTSError, is_flite_available
 
 
@@ -40,6 +45,12 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         tts_provider = get_tts_provider(config)
+        reset_ids = reset_missing_renders(conn)
+        if reset_ids:
+            print(
+                f"[info] {len(reset_ids)} video file(s) from an earlier run no longer exist "
+                "(GitHub runners start with an empty disk) - queued for re-rendering."
+            )
         outcomes = render_batch(conn, config, count=args.count, tts_provider=tts_provider)
     except (RenderError, TTSError) as exc:
         fail_job(conn, job_id, str(exc), traceback.format_exc())
