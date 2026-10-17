@@ -23,7 +23,7 @@ max_job_age_hours: 36
 # AI_TEMPERATURE environment variables, which take precedence.
 ai:
   provider: gemini
-  model: ""
+  model: "gemini-3.5-flash-lite"
   api_key: ""
   max_requests_per_run: 20
   temperature: 0.7
@@ -75,7 +75,7 @@ publishing:
   # does not accept file uploads) - see README "Publishing" section for
   # why github_release is the default (no new external account needed).
   media_host: github_release
-  github_repo: "" # "owner/repo" - required if media_host is github_release
+  github_repo: "JohnPl80/ghostcash" # "owner/repo" - required if media_host is github_release
   github_release_tag: ghostcash-media
   posts_per_day: 5
 
