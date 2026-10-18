@@ -9,6 +9,7 @@ failure on one platform doesn't block the others (section 21).
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from dataclasses import dataclass
 
@@ -30,6 +31,27 @@ class PublishOutcome:
     platform: Platform
     result: ScheduleResult | None
     error: str | None
+
+
+def media_asset_name(content_id: int, video_path: str) -> str:
+    """The name a video is stored under on the media host.
+
+    The media host reuses any existing file with the same name, so a name
+    made only of the content number is dangerous: numbers can repeat (for
+    example if the database were ever reset) and a brand-new post would
+    silently point at an old, different video. A short fingerprint of the
+    file itself makes the name unique to this exact video, while a re-run
+    with the same file still finds - and reuses - its earlier upload."""
+    digest = hashlib.sha256()
+    try:
+        with open(video_path, "rb") as video:
+            for chunk in iter(lambda: video.read(1 << 20), b""):
+                digest.update(chunk)
+    except OSError:
+        # Unreadable file: keep the plain name; the media host reports the
+        # missing file itself with a clear error.
+        return f"content_{content_id}.mp4"
+    return f"content_{content_id}_{digest.hexdigest()[:12]}.mp4"
 
 
 def select_ready_content(conn: sqlite3.Connection, limit: int) -> list[Content]:
@@ -117,7 +139,8 @@ def publish_batch(
 
         try:
             video_url = media_host.upload(
-                content.rendered_video_path, remote_name=f"content_{content.id}.mp4"
+                content.rendered_video_path,
+                remote_name=media_asset_name(content.id, content.rendered_video_path),
             )
         except MediaHostError as exc:
             for platform in platforms:

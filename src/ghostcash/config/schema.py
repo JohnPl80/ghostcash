@@ -249,7 +249,10 @@ class VideoConfig:
     # Each narration is saved here after the first successful recording, so
     # re-making a video (GitHub runners start with an empty disk) never
     # costs another speech request. Cleaned up once the content is published.
-    audio_cache_dir: str = "data/audio"
+    # It lives INSIDE data/backups on purpose: the GitHub workflows keep
+    # data/ghostcash.db and data/backups between runs, and changing that list
+    # of folders would make GitHub ignore every earlier saved database.
+    audio_cache_dir: str = "data/backups/audio"
 
     # section 61 Phase 4 / 62 DoD example: "5 videos rendered" per run.
     render_per_run: int = 5

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import requests
 
 from ghostcash.ai.base import AIProvider
 from ghostcash.database.connection import get_connection
@@ -90,6 +91,23 @@ def sample_content_draft(**overrides: Any) -> dict[str, Any]:
     }
     draft.update(overrides)
     return draft
+
+
+@pytest.fixture(autouse=True)
+def _no_real_network(monkeypatch):
+    """Tests must never reach a real service (CLAUDE.md section 44).
+
+    Some commands (`run`, `health`) check connectivity as a side effect; with
+    a fake test key those used to send real requests to Google. Every request
+    now fails at once, exactly like a network outage, which those commands
+    already handle."""
+
+    def refuse(self, request, **kwargs):
+        raise requests.ConnectionError(
+            f"tests must not use the network: {request.method} {request.url}"
+        )
+
+    monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", refuse)
 
 
 @pytest.fixture()

@@ -41,16 +41,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # DO NOT add or remove paths in this list (here or in the matching save
+      # step, in any workflow). GitHub ties each saved copy to the exact list
+      # of folders; change the list and every earlier save becomes invisible,
+      # so the next run silently starts from an empty database. Anything else
+      # that must persist (such as saved narration audio) lives INSIDE one of
+      # these folders - see video.audio_cache_dir.
       - name: Restore persisted database + backups
+        id: restore_db
         uses: actions/cache/restore@v6
         with:
           path: |
             data/ghostcash.db
             data/backups
-            data/audio
           key: ghostcash-data-${{ github.run_id }}
           restore-keys: |
             ghostcash-data-
+
+      - name: Warn if no saved database was found
+        if: steps.restore_db.outputs.cache-matched-key == ''
+        run: |
+          echo "::warning title=No saved database::No saved GhostCash database was found, so this run starts from an EMPTY one. That is normal only for the very first run ever."
+          echo "[WARN] NO SAVED DATABASE FOUND - this run starts from an empty database."
+          echo "[WARN] If this is not the first run ever, the saved copy is not being restored; see README, Troubleshooting."
 
       - uses: actions/setup-python@v5
         with:
@@ -148,5 +161,4 @@ jobs:
           path: |
             data/ghostcash.db
             data/backups
-            data/audio
           key: ghostcash-data-${{ github.run_id }}

@@ -232,7 +232,7 @@ work, the real error is printed.
 **Living with the free-tier limits.** GhostCash is built around them:
 
 - *One request per video, ever.* After a narration is recorded it is saved
-  in `video.audio_cache_dir` (`data/audio`, kept between GitHub runs with
+  in `video.audio_cache_dir` (`data/backups/audio`, kept between GitHub runs with
   the database). Re-making a video - which GitHub runners must do, since
   they start with an empty disk - reuses the saved audio instead of asking
   Google again. The saved audio is deleted once the video is published.
@@ -753,6 +753,17 @@ one `concurrency.group` so GitHub Actions serializes them - SQLite is
 single-writer, and nothing here takes an application-level lock across
 separate runs otherwise.
 
+**Never change the list of cached folders.** GitHub ties every saved copy
+to the exact list of `path:` folders it was saved with. Add or remove one
+and every earlier save becomes invisible: the next run silently starts
+from an empty database (new content numbered from #1, an empty queue,
+past posts forgotten). So the list is fixed at `data/ghostcash.db` plus
+`data/backups`, and anything else that must persist - such as the saved
+narration audio, `data/backups/audio` - lives *inside* one of those.
+`tests/test_workflow_cache.py` enforces this, and each workflow prints a
+`[WARN] NO SAVED DATABASE FOUND` line (and a yellow annotation on the run
+page) whenever it starts without a restored database.
+
 **Rendered videos are NOT persisted** between runs - only the database
 is. A video rendered in one run is gone from the next runner's disk, so
 `ghostcash render` first sends any READY content whose file has
@@ -781,6 +792,12 @@ branches later steps on that step's own output instead.
 
 ## 9. Troubleshooting
 
+- **A workflow prints `NO SAVED DATABASE FOUND`, or the queue suddenly
+  reads 0 and new content restarts at #1** - the saved database was not
+  restored. Saved copies are kept for 7 days, so if the cached folder list
+  was changed by mistake, put it back to exactly `data/ghostcash.db` +
+  `data/backups` in all four workflows; the next run then finds the
+  earlier copy again. Check what exists with `gh cache list`.
 - **`ghostcash health` reports "database is missing migrations"** - run
   `ghostcash init` (safe to re-run).
 - **`ConfigError: No configuration file found`** - copy

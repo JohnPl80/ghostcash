@@ -185,3 +185,46 @@ def test_publish_batch_skips_inactive_platforms(migrated_conn):
     _insert_platform(migrated_conn, name="YOUTUBE", is_active=0)
     with pytest.raises(PublishingSetupError):
         publish_batch(_FakePublisher(), _FakeMediaHost(), migrated_conn, Config())
+
+
+# -- the uploaded video's name must be unique to that exact video -------------
+
+
+def test_media_asset_name_carries_a_fingerprint_of_the_file(tmp_path):
+    from ghostcash.publishing.pipeline import media_asset_name
+
+    first = tmp_path / "a.mp4"
+    first.write_bytes(b"old robotic video")
+    same_bytes = tmp_path / "b.mp4"
+    same_bytes.write_bytes(b"old robotic video")
+    other = tmp_path / "c.mp4"
+    other.write_bytes(b"new natural voice video")
+
+    name = media_asset_name(2, str(first))
+
+    assert name.startswith("content_2_") and name.endswith(".mp4")
+    assert media_asset_name(2, str(same_bytes)) == name  # a re-run reuses its upload
+    assert media_asset_name(2, str(other)) != name  # a different video never does
+    assert media_asset_name(3, str(first)) != name
+
+
+def test_media_asset_name_for_an_unreadable_file_keeps_the_plain_name(tmp_path):
+    from ghostcash.publishing.pipeline import media_asset_name
+
+    assert media_asset_name(7, str(tmp_path / "missing.mp4")) == "content_7.mp4"
+
+
+def test_publish_uploads_under_the_fingerprinted_name(migrated_conn, tmp_path):
+    """Content numbers can repeat after a database reset. Without the
+    fingerprint the new post #2 reused the OLD video #2 on the media host."""
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"this exact video")
+    _insert_platform(migrated_conn)
+    _insert_ready_content(migrated_conn, video_path=str(video))
+    media_host = _FakeMediaHost()
+
+    publish_batch(_FakePublisher(), media_host, migrated_conn, Config())
+
+    (_, remote_name) = media_host.upload_calls[0]
+    assert remote_name.startswith("content_") and remote_name != "content_1.mp4"
+    assert remote_name.endswith(".mp4")
