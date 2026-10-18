@@ -13,7 +13,11 @@ from ghostcash.publishing.media_host import GitHubReleaseMediaHost, MediaHost, M
 def get_publisher(config: Config) -> Publisher:
     provider_name = (config.publishing.provider or "").strip().lower()
     if provider_name == "buffer":
-        return BufferPublisher(api_key=config.buffer_api_key)
+        return BufferPublisher(
+            api_key=config.buffer_api_key,
+            youtube_category_id=config.publishing.youtube_category_id,
+            disclose_ai_generated=config.publishing.disclose_ai_generated,
+        )
     raise PublisherError(
         f"Unknown publishing provider: {provider_name!r}. Currently implemented: buffer."
     )

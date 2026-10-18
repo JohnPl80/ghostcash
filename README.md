@@ -251,6 +251,17 @@ worth knowing before you rely on this:
   suggests both - implement `ghostcash.publishing.media_host.MediaHost`
   and point `publishing.media_host` at it.
 
+**Per-channel details Buffer requires** (found in the first live run,
+2026-10-18, when Buffer rejected every post): an Instagram post must say
+what it is - GhostCash sends a **Reel** (also shared to the feed) for a
+video - and a YouTube post must have a **title** (the content title,
+cut to YouTube's 100-character limit) and a **category** (default `27`,
+Education; change `publishing.youtube_category_id` in `config.yaml` -
+valid ids are listed in `publishing/buffer.py`). Both channels also get
+Buffer's `isAiGenerated` flag, because the scripts are AI-written and the
+voice is synthetic; set `publishing.disclose_ai_generated: false` to turn
+that off.
+
 Every (content, platform) publish attempt is recorded in
 `published_posts` with a stable idempotency key, so re-running
 `ghostcash publish` never double-posts the same content to the same

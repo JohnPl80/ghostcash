@@ -4,10 +4,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from ghostcash.config.schema import Config
 from ghostcash.models.content import Content
 from ghostcash.models.publishing import Platform
 from ghostcash.publishing.base import PublisherError
 from ghostcash.publishing.buffer import BufferPublisher
+from ghostcash.publishing.factory import get_publisher
 
 
 def _mock_response(status_code=200, json_data=None, text=""):
@@ -292,3 +294,139 @@ def test_schedule_raises_when_no_text_available():
 
     with pytest.raises(PublisherError, match="caption"):
         publisher.schedule(_content(caption=None, title=None, topic=""), _platform())
+
+
+# -- per-channel metadata Buffer requires (first live run, 2026-10-18) ---
+
+
+def _ok_session() -> MagicMock:
+    session = MagicMock()
+    session.post.return_value = _mock_response(
+        json_data={
+            "data": {
+                "createPost": {
+                    "__typename": "PostActionSuccess",
+                    "post": {"id": "post1", "status": "draft", "dueAt": None},
+                }
+            }
+        }
+    )
+    return session
+
+
+def _sent_input(session: MagicMock) -> dict:
+    return session.post.call_args.kwargs["json"]["variables"]["input"]
+
+
+def test_create_post_passes_metadata_through():
+    session = _ok_session()
+    publisher = BufferPublisher(api_key="secret", session=session)
+
+    publisher.create_post(channel_id="ch1", text="Hi", metadata={"instagram": {"type": "reel"}})
+
+    assert _sent_input(session)["metadata"] == {"instagram": {"type": "reel"}}
+
+
+def test_create_post_omits_metadata_when_none():
+    session = _ok_session()
+    publisher = BufferPublisher(api_key="secret", session=session)
+
+    publisher.create_post(channel_id="ch1", text="Hi")
+
+    assert "metadata" not in _sent_input(session)
+
+
+def test_schedule_instagram_video_is_a_reel_shared_to_feed():
+    session = _ok_session()
+    publisher = BufferPublisher(api_key="secret", session=session)
+
+    publisher.schedule(
+        _content(), _platform(name="INSTAGRAM"), video_url="https://example.com/v.mp4"
+    )
+
+    assert _sent_input(session)["metadata"] == {
+        "instagram": {"type": "reel", "shouldShareToFeed": True, "isAiGenerated": True}
+    }
+
+
+def test_schedule_instagram_without_video_is_a_plain_post():
+    session = _ok_session()
+    publisher = BufferPublisher(api_key="secret", session=session)
+
+    publisher.schedule(_content(), _platform(name="INSTAGRAM"))
+
+    assert _sent_input(session)["metadata"]["instagram"]["type"] == "post"
+
+
+def test_schedule_youtube_sends_title_and_category():
+    session = _ok_session()
+    publisher = BufferPublisher(api_key="secret", session=session)
+
+    publisher.schedule(
+        _content(title="5 Excel tricks"),
+        _platform(name="YOUTUBE"),
+        video_url="https://example.com/v.mp4",
+    )
+
+    assert _sent_input(session)["metadata"] == {
+        "youtube": {"title": "5 Excel tricks", "categoryId": "27", "isAiGenerated": True}
+    }
+
+
+def test_schedule_youtube_title_is_cut_to_youtubes_100_character_limit():
+    session = _ok_session()
+    publisher = BufferPublisher(api_key="secret", session=session)
+
+    publisher.schedule(_content(title="word " * 40), _platform(name="YOUTUBE"))
+
+    title = _sent_input(session)["metadata"]["youtube"]["title"]
+    assert len(title) <= 100
+    assert title.endswith("...")
+
+
+def test_schedule_youtube_title_collapses_whitespace_and_falls_back_to_hook_then_topic():
+    session = _ok_session()
+    publisher = BufferPublisher(api_key="secret", session=session)
+
+    publisher.schedule(
+        _content(title=None, hook="Stop  doing\nthis", topic="topic"), _platform(name="YOUTUBE")
+    )
+    assert _sent_input(session)["metadata"]["youtube"]["title"] == "Stop doing this"
+
+    publisher.schedule(_content(title=None, hook=None, topic="Only a topic"), _platform())
+    assert _sent_input(session)["metadata"]["youtube"]["title"] == "Only a topic"
+
+
+def test_schedule_youtube_uses_configured_category():
+    session = _ok_session()
+    publisher = BufferPublisher(api_key="secret", session=session, youtube_category_id="28")
+
+    publisher.schedule(_content(title="t"), _platform(name="YOUTUBE"))
+
+    assert _sent_input(session)["metadata"]["youtube"]["categoryId"] == "28"
+
+
+def test_ai_disclosure_flag_can_be_turned_off():
+    session = _ok_session()
+    publisher = BufferPublisher(api_key="secret", session=session, disclose_ai_generated=False)
+
+    publisher.schedule(_content(title="t"), _platform(name="YOUTUBE"))
+    assert "isAiGenerated" not in _sent_input(session)["metadata"]["youtube"]
+
+    publisher.schedule(
+        _content(title="t"), _platform(name="INSTAGRAM"), video_url="https://x/v.mp4"
+    )
+    assert "isAiGenerated" not in _sent_input(session)["metadata"]["instagram"]
+
+
+def test_get_publisher_passes_publishing_config_to_buffer_publisher(monkeypatch):
+    config = Config()
+    config.buffer_api_key = "secret"
+    config.publishing.youtube_category_id = "26"
+    config.publishing.disclose_ai_generated = False
+
+    publisher = get_publisher(config)
+
+    assert isinstance(publisher, BufferPublisher)
+    assert publisher._youtube_category_id == "26"
+    assert publisher._disclose_ai_generated is False

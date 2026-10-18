@@ -87,6 +87,15 @@ class PublishingConfig:
     # "how much READY/SCHEDULED content is queued" into a days-of-runway
     # estimate for the section 22 queue thresholds.
     posts_per_day: int = 5
+    # Buffer rejects a YouTube post without a category. Default 27 =
+    # Education; other valid ids are listed in publishing/buffer.py
+    # (e.g. 26 Howto & Style, 28 Science & Technology).
+    youtube_category_id: str = "27"
+    # Send Buffer's isAiGenerated flag (Instagram + YouTube) so the
+    # platforms show their AI-content label. GhostCash's scripts are
+    # AI-written and the voice is synthetic, so this is on by default;
+    # set false only if you have decided the labels are not required.
+    disclose_ai_generated: bool = True
 
 
 @dataclass

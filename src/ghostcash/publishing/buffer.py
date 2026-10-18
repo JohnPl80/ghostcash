@@ -43,10 +43,30 @@ SERVICE_TO_PLATFORM: dict[str, str] = {
 # (channels can still be connected/synced - see channels.py).
 UNSUPPORTED_FOR_POSTING: frozenset[str] = frozenset({"TIKTOK"})
 
+# Buffer validates per-channel metadata when a post is created and rejects
+# it without the required fields (seen in the first live run, 2026-10-18:
+# "Instagram posts require a type (post, story, or reel)" and "YouTube posts
+# require a title ... require a category"). Field names below are from
+# developers.buffer.com/types/{PostInputMetaData,InstagramPostMetadataInput,
+# YoutubePostMetadataInput}.md, read 2026-10-18.
+#
+# YouTube category ids Buffer accepts (YoutubePostMetadataInput.categoryId):
+# 1 Film & Animation, 2 Autos & Vehicles, 10 Music, 15 Pets & Animals,
+# 17 Sports, 19 Travel & Events, 20 Gaming, 22 People & Blogs, 23 Comedy,
+# 24 Entertainment, 25 News & Politics, 26 Howto & Style, 27 Education,
+# 28 Science & Technology, 29 Nonprofits & Activism.
+DEFAULT_YOUTUBE_CATEGORY_ID = "27"  # Education - GhostCash posts how-to tips
+YOUTUBE_TITLE_MAX_CHARS = 100  # YouTube's own title limit
+
 
 class BufferPublisher(Publisher):
     def __init__(
-        self, api_key: str, session: requests.Session | None = None, timeout_seconds: int = 60
+        self,
+        api_key: str,
+        session: requests.Session | None = None,
+        timeout_seconds: int = 60,
+        youtube_category_id: str = DEFAULT_YOUTUBE_CATEGORY_ID,
+        disclose_ai_generated: bool = True,
     ) -> None:
         if not api_key:
             raise PublisherError(
@@ -56,6 +76,8 @@ class BufferPublisher(Publisher):
         self._api_key = api_key
         self._session = session or requests.Session()
         self._timeout_seconds = timeout_seconds
+        self._youtube_category_id = youtube_category_id
+        self._disclose_ai_generated = disclose_ai_generated
 
     def _call(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
@@ -146,6 +168,7 @@ class BufferPublisher(Publisher):
         video_url: str | None = None,
         due_at: str | None = None,
         save_to_draft: bool = False,
+        metadata: dict[str, Any] | None = None,
     ) -> ScheduleResult:
         input_payload: dict[str, Any] = {
             "channelId": channel_id,
@@ -164,6 +187,8 @@ class BufferPublisher(Publisher):
             input_payload["saveToDraft"] = True
         if video_url:
             input_payload["assets"] = [{"video": {"url": video_url}}]
+        if metadata:
+            input_payload["metadata"] = metadata
 
         query = """
             mutation CreatePost($input: CreatePostInput!) {
@@ -311,4 +336,39 @@ class BufferPublisher(Publisher):
             text=text,
             video_url=video_url,
             save_to_draft=save_to_draft,
+            metadata=self._build_metadata(content, platform.name, has_video=bool(video_url)),
         )
+
+    def _build_metadata(
+        self, content: Content, platform_name: str, *, has_video: bool
+    ) -> dict[str, Any] | None:
+        """Per-channel fields Buffer requires on top of the generic post
+        input. None for a channel that needs none."""
+        if platform_name == "INSTAGRAM":
+            instagram: dict[str, Any] = {
+                # A video is posted as a Reel; Buffer insists on an explicit type.
+                "type": "reel" if has_video else "post",
+                "shouldShareToFeed": True,
+            }
+            if self._disclose_ai_generated:
+                instagram["isAiGenerated"] = True
+            return {"instagram": instagram}
+
+        if platform_name == "YOUTUBE":
+            youtube: dict[str, Any] = {
+                "title": self._youtube_title(content),
+                "categoryId": self._youtube_category_id,
+            }
+            if self._disclose_ai_generated:
+                youtube["isAiGenerated"] = True
+            return {"youtube": youtube}
+
+        return None
+
+    @staticmethod
+    def _youtube_title(content: Content) -> str:
+        raw = content.title or content.hook or content.topic or ""
+        title = " ".join(raw.split())
+        if len(title) > YOUTUBE_TITLE_MAX_CHARS:
+            title = title[: YOUTUBE_TITLE_MAX_CHARS - 3].rstrip() + "..."
+        return title
