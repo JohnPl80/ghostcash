@@ -14,7 +14,9 @@ rather than .srt.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import sqlite3
 import subprocess
 import tempfile
@@ -32,11 +34,28 @@ from ghostcash.video.tts import (
     GeminiTTSProvider,
     TTSError,
     TTSProvider,
+    TTSTemporaryError,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RenderError(Exception):
     """Raised when rendering a piece of content into a video fails."""
+
+
+class RenderDeferredError(RenderError):
+    """The video cannot be made right now for a reason that clears by itself
+    (the voice service's rate limit or daily allowance, a brief outage).
+    Nothing is wrong with the content: it stays APPROVED and the next render
+    run tries again, instead of being marked FAILED or made with a worse
+    voice."""
+
+
+class RetryLater(str):
+    """The "error" text render_batch() reports for an item that was deferred
+    (see RenderDeferredError) rather than failed, so callers can tell the two
+    apart without a new result shape."""
 
 
 @dataclass
@@ -69,6 +88,7 @@ def build_gemini_tts(
         model=model or video.tts_gemini_model or None,
         voice=voice or video.tts_gemini_voice or None,
         style=video.tts_gemini_style if style is None else style,
+        min_interval_seconds=video.tts_gemini_min_interval_seconds,
     )
 
 
@@ -110,6 +130,23 @@ def backup_voice_notice(tts_provider: TTSProvider) -> str | None:
     return (
         f"[warn] {len(reasons)} narration(s) used the robotic backup voice because the "
         f"Gemini voice failed. First reason: {reasons[0]}"
+    )
+
+
+def deferred_notice(
+    outcomes: list[tuple[Content, RenderResult | None, str | None]],
+) -> str | None:
+    """A one-line message when videos were deferred (see RenderDeferredError),
+    else None. Callers print it so a quiet wait is never mistaken for a
+    problem - or for success."""
+    deferred = [
+        error for _, result, error in outcomes if result is None and isinstance(error, RetryLater)
+    ]
+    if not deferred:
+        return None
+    return (
+        f"[WAITING] {len(deferred)} video(s) could not be made yet and stay approved; "
+        f"the next run tries again. Reason: {deferred[0]}"
     )
 
 
@@ -276,6 +313,81 @@ def _build_filter_complex(
     return ";".join(parts)
 
 
+def _narration_cache_path(
+    config: Config, content: Content, tts_provider: TTSProvider, narration: str
+) -> Path | None:
+    """Where this narration's saved audio lives, or None when it is not
+    worth saving (no content id, or a voice that costs nothing to remake).
+
+    The name carries a fingerprint of the voice setup and the exact text, so
+    changing either the voice settings or the script makes a fresh recording
+    instead of reusing a stale one."""
+    identity = getattr(tts_provider, "cache_identity", None)
+    if identity is None or content.id is None:
+        return None
+    fingerprint = hashlib.sha256(f"{identity}\n{narration}".encode()).hexdigest()[:16]
+    return Path(config.video.audio_cache_dir) / f"content_{content.id}_{fingerprint}.flac"
+
+
+def _save_narration(wav_path: Path, cache_path: Path, ffmpeg_binary: str, content_id: int) -> None:
+    """Keep a compressed copy of the narration for later re-renders. Never
+    raises: failing to save only means a re-render has to ask the voice
+    service again."""
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        for old in cache_path.parent.glob(f"content_{content_id}_*.flac"):
+            old.unlink(missing_ok=True)  # an earlier recording of different text
+        partial = cache_path.with_suffix(".part.flac")
+        result = subprocess.run(
+            [ffmpeg_binary, "-y", "-hide_banner", "-loglevel", "error", "-i", str(wav_path)]
+            + ["-c:a", "flac", str(partial)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            partial.unlink(missing_ok=True)
+            logger.warning("Could not save narration audio: %s", result.stderr.strip()[-300:])
+            return
+        partial.replace(cache_path)  # only complete files ever carry the final name
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning("Could not save narration audio: %s", exc)
+
+
+def prune_audio_cache(conn: sqlite3.Connection, config: Config) -> int:
+    """Delete saved narration for content that no longer needs rendering.
+
+    Audio is only useful while its content is APPROVED (waiting for a video)
+    or READY (video may need re-making, because GitHub runners start with an
+    empty disk). Once the content is published, rejected or failed, its audio
+    would just fill the saved-data cache. Returns the number of files removed."""
+    cache_dir = Path(config.video.audio_cache_dir)
+    if not cache_dir.is_dir():
+        return 0
+    needed = {
+        row[0]
+        for row in conn.execute("SELECT id FROM content WHERE status IN ('APPROVED', 'READY')")
+    }
+    removed = 0
+    for path in cache_dir.glob("content_*.flac"):
+        try:
+            content_id = int(path.name.split("_")[1])
+        except (IndexError, ValueError):
+            continue
+        if content_id not in needed:
+            try:
+                path.unlink()
+                removed += 1
+            except OSError:
+                pass
+    for stray in cache_dir.glob("*.part.flac"):
+        try:
+            stray.unlink()
+        except OSError:
+            pass
+    return removed
+
+
 def render_content(
     content: Content,
     config: Config,
@@ -302,13 +414,23 @@ def render_content(
     if not full_narration.strip():
         raise RenderError("Nothing to narrate for this content.")
 
+    cache_path = _narration_cache_path(config, content, tts_provider, full_narration)
+
     with tempfile.TemporaryDirectory(prefix="ghostcash-render-") as work_dir:
         work_path = Path(work_dir)
-        audio_path = work_path / "narration.wav"
-        try:
-            tts_provider.synthesize(full_narration, str(audio_path))
-        except TTSError as exc:
-            raise RenderError(f"TTS synthesis failed: {exc}") from exc
+        if cache_path is not None and cache_path.is_file():
+            audio_path = cache_path  # recorded on an earlier run; no new request needed
+        else:
+            audio_path = work_path / "narration.wav"
+            try:
+                tts_provider.synthesize(full_narration, str(audio_path))
+            except TTSTemporaryError as exc:
+                raise RenderDeferredError(f"voice not available right now: {exc}") from exc
+            except TTSError as exc:
+                raise RenderError(f"TTS synthesis failed: {exc}") from exc
+            used_backup_voice = bool(getattr(tts_provider, "used_fallback_last", False))
+            if cache_path is not None and content.id is not None and not used_backup_voice:
+                _save_narration(audio_path, cache_path, video_cfg.ffmpeg_binary, content.id)
 
         total_duration = _probe_duration_seconds(audio_path, video_cfg.ffprobe_binary)
 
@@ -452,6 +574,10 @@ def render_batch(
     successes and per-item failures without a single bad render
     aborting the whole batch. Returns [] if there was nothing to do
     (not an error).
+
+    An item whose voice is temporarily unavailable (rate limit, daily
+    allowance used up) is not a failure: its error is a RetryLater, the
+    content stays APPROVED, and the next run picks it up again.
     """
     requested_count = count if count is not None else config.video.render_per_run
     if requested_count < 1:
@@ -471,6 +597,9 @@ def render_batch(
             result = render_content(
                 content, config, tts_provider=tts_provider, templates_dir=templates_dir
             )
+        except RenderDeferredError as exc:
+            results.append((content, None, RetryLater(str(exc))))
+            continue
         except RenderError as exc:
             _mark_failed(conn, content.id)
             results.append((content, None, str(exc)))
@@ -482,4 +611,5 @@ def render_batch(
         content.rendered_duration_seconds = result.duration_seconds
         results.append((content, result, None))
 
+    prune_audio_cache(conn, config)
     return results

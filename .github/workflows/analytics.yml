@@ -36,6 +36,7 @@ jobs:
           path: |
             data/ghostcash.db
             data/backups
+            data/audio
           key: ghostcash-data-${{ github.run_id }}
           restore-keys: |
             ghostcash-data-
@@ -103,4 +104,5 @@ jobs:
           path: |
             data/ghostcash.db
             data/backups
+            data/audio
           key: ghostcash-data-${{ github.run_id }}

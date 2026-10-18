@@ -51,10 +51,30 @@ class TTSError(Exception):
     """Raised when speech synthesis fails."""
 
 
+class TTSTemporaryError(TTSError):
+    """A failure that is likely to clear by itself (rate limit, overload,
+    network trouble). The video is better left waiting for a later run than
+    marked as failed or made with a worse voice."""
+
+
+class TTSQuotaExhaustedError(TTSTemporaryError):
+    """The service's daily request allowance is used up, so retrying now is
+    pointless; it resets on its own."""
+
+
 class TTSProvider(ABC):
     @abstractmethod
     def synthesize(self, text: str, output_path: str) -> None:
         """Write synthesized speech for `text` to `output_path` (WAV)."""
+
+    @property
+    def cache_identity(self) -> str | None:
+        """Names this voice setup (service, model, voice, style) so that
+        identical narration can reuse saved audio instead of asking the
+        service again. None (the default) means "do not cache" - right for
+        a free local voice like flite, where re-making the audio costs
+        nothing."""
+        return None
 
 
 def is_flite_available(ffmpeg_binary: str = "ffmpeg") -> bool:
@@ -136,6 +156,26 @@ class FliteTTSProvider(TTSProvider):
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 _DEFAULT_RETRY_DELAYS: tuple[float, ...] = (5.0, 15.0, 45.0)
 
+# Google's 429 text tells a per-minute limit ("limit: 3 requests per minute",
+# "Please retry in 20s") from the daily one ("limit: 10 requests per day",
+# "Please retry in 8h15m26s"). Seen live on the free tier, 2026-10-18.
+_DAILY_QUOTA_PATTERN = re.compile(r"per day|daily", re.IGNORECASE)
+_RETRY_IN_PATTERN = re.compile(
+    r"retry in\s+(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+(?:\.\d+)?)s)?", re.IGNORECASE
+)
+# Longest wait worth sitting through for a "retry in ..." hint.
+_MAX_HINTED_WAIT_SECONDS = 90.0
+
+
+def _retry_in_seconds(message: str) -> float | None:
+    """Seconds from a "Please retry in 20s" style hint, else None."""
+    match = _RETRY_IN_PATTERN.search(message)
+    if not match or not any(match.groups()):
+        return None
+    hours, minutes, seconds = match.groups()
+    return int(hours or 0) * 3600 + int(minutes or 0) * 60 + float(seconds or 0)
+
+
 # Gemini speech models answer raw 24 kHz mono 16-bit PCM when no container
 # is sent; this is the rate used when a response does not state its own.
 _DEFAULT_PCM_SAMPLE_RATE = 24000
@@ -215,6 +255,8 @@ class GeminiTTSProvider(TTSProvider):
         session: requests.Session | None = None,
         retry_delays: tuple[float, ...] = _DEFAULT_RETRY_DELAYS,
         sleep: Callable[[float], None] = time.sleep,
+        min_interval_seconds: float = 0.0,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._api_key = api_key
         self._model = model or self.DEFAULT_MODEL
@@ -224,8 +266,21 @@ class GeminiTTSProvider(TTSProvider):
         self._session = session or requests.Session()
         self._retry_delays = retry_delays
         self._sleep = sleep
+        # Minimum gap between requests. The free tier allows 3 requests a
+        # minute, so a render of several videos must be paced (about 21 s);
+        # a paid account can use 0.
+        self._min_interval_seconds = min_interval_seconds
+        self._clock = clock
+        self._last_request_at: float | None = None
         # The request shape (see _SHAPES) the API has accepted so far.
         self.working_shape: str | None = None
+        # Set once Google says the daily allowance is used up; from then on
+        # this provider refuses immediately instead of asking again.
+        self.exhausted_reason: str | None = None
+
+    @property
+    def cache_identity(self) -> str | None:
+        return f"gemini|{self._model}|{self._voice}|{self._style}"
 
     @property
     def model(self) -> str:
@@ -254,6 +309,8 @@ class GeminiTTSProvider(TTSProvider):
         if not text.strip():
             raise TTSError("Cannot synthesize empty text.")
         self._require_key()
+        if self.exhausted_reason:
+            raise TTSQuotaExhaustedError(self.exhausted_reason)
 
         audio, mime_type = self._request_audio(text)
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -379,13 +436,26 @@ class GeminiTTSProvider(TTSProvider):
                 message = error
         return f"Gemini API error {response.status_code}: {message}"
 
+    def _pace(self) -> None:
+        """Wait, if needed, so requests are at least `min_interval_seconds`
+        apart (see the constructor)."""
+        if self._min_interval_seconds > 0 and self._last_request_at is not None:
+            wait = self._min_interval_seconds - (self._clock() - self._last_request_at)
+            if wait > 0:
+                self._sleep(wait)
+        self._last_request_at = self._clock()
+
     def _post(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
         """POST with retries for transient failures. HTTP 400/404 raise
-        _ShapeRejectedError (another request shape may work); any other
-        failure is a plain TTSError."""
+        _ShapeRejectedError (another request shape may work); a daily-quota
+        429 raises TTSQuotaExhaustedError at once; other transient failures
+        are retried and, if they persist, raised as TTSTemporaryError;
+        anything else is a plain TTSError."""
         attempt = 0
         while True:
             error: TTSError
+            hinted_wait: float | None = None
+            self._pace()
             try:
                 response = self._session.post(
                     url,
@@ -394,9 +464,11 @@ class GeminiTTSProvider(TTSProvider):
                     timeout=self._timeout_seconds,
                 )
             except requests.RequestException as exc:
-                error = TTSError(f"Could not reach the Gemini API: {exc}")
-                error.__cause__ = exc
                 retryable = isinstance(exc, requests.Timeout | requests.ConnectionError)
+                error = (TTSTemporaryError if retryable else TTSError)(
+                    f"Could not reach the Gemini API: {exc}"
+                )
+                error.__cause__ = exc
             else:
                 if response.ok:
                     try:
@@ -410,12 +482,22 @@ class GeminiTTSProvider(TTSProvider):
                     return payload
                 if response.status_code in (400, 404):
                     raise _ShapeRejectedError(self._format_error(response))
-                error = TTSError(self._format_error(response))
+                message = self._format_error(response)
                 retryable = response.status_code in _RETRYABLE_STATUS_CODES
+                if response.status_code == 429 and _DAILY_QUOTA_PATTERN.search(message):
+                    self.exhausted_reason = message
+                    raise TTSQuotaExhaustedError(message)
+                error = (TTSTemporaryError if retryable else TTSError)(message)
+                if response.status_code == 429:
+                    hinted_wait = _retry_in_seconds(message)
+                    if hinted_wait is not None and hinted_wait > _MAX_HINTED_WAIT_SECONDS:
+                        raise error  # not worth sitting through
 
             if not retryable or attempt >= len(self._retry_delays):
                 raise error
             delay = self._retry_delays[attempt]
+            if hinted_wait is not None:
+                delay = min(hinted_wait + 1.0, _MAX_HINTED_WAIT_SECONDS)
             attempt += 1
             logger.warning(
                 "Gemini speech request failed (%s). Retrying in %.0f s (retry %d of %d)...",
@@ -448,12 +530,20 @@ class FallbackTTSProvider(TTSProvider):
         self._primary_label = primary_label
         self._fallback_label = fallback_label
         self.fallback_reasons: list[str] = []
+        # True when the most recent synthesize() used the backup voice, so
+        # callers do not save that (worse) audio as the narration to reuse.
+        self.used_fallback_last = False
 
     @property
     def primary(self) -> TTSProvider:
         return self._primary
 
+    @property
+    def cache_identity(self) -> str | None:
+        return self._primary.cache_identity
+
     def synthesize(self, text: str, output_path: str) -> None:
+        self.used_fallback_last = False
         try:
             self._primary.synthesize(text, output_path)
             return
@@ -468,6 +558,7 @@ class FallbackTTSProvider(TTSProvider):
             "%s failed (%s); using the %s.", self._primary_label, reason, self._fallback_label
         )
         self.fallback_reasons.append(reason)
+        self.used_fallback_last = True
         try:
             self._fallback.synthesize(text, output_path)
         except TTSError as exc:

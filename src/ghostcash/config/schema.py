@@ -237,10 +237,19 @@ class VideoConfig:
     tts_gemini_model: str = "gemini-3.8-flash-tts"
     tts_gemini_voice: str = "Kore"
     tts_gemini_style: str = "clear, upbeat and friendly, at a brisk natural pace"
-    # What to do when the Gemini voice fails (quota, outage): "flite" makes
-    # the video with the robotic voice and says so; "none" fails that
-    # video, which stays queued and is retried on the next run.
-    tts_fallback: str = "flite"
+    # Seconds to leave between Gemini speech requests. The free tier allows
+    # 3 requests a minute, so 21 keeps a batch of videos under it. A paid
+    # account can set 0.
+    tts_gemini_min_interval_seconds: float = 21.0
+    # What to do when the Gemini voice is not available (daily free-tier
+    # limit of 10 requests, outage): "none" leaves the video waiting and
+    # tries again on the next run - nothing robotic ever ships; "flite"
+    # makes it right away with the robotic voice and says so.
+    tts_fallback: str = "none"
+    # Each narration is saved here after the first successful recording, so
+    # re-making a video (GitHub runners start with an empty disk) never
+    # costs another speech request. Cleaned up once the content is published.
+    audio_cache_dir: str = "data/audio"
 
     # section 61 Phase 4 / 62 DoD example: "5 videos rendered" per run.
     render_per_run: int = 5

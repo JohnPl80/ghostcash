@@ -394,6 +394,7 @@ def test_render_content_works_with_audio_from_the_gemini_provider(tmp_path):
     )
     config = Config()
     config.video.output_dir = str(tmp_path / "out")
+    config.video.audio_cache_dir = str(tmp_path / "audio")
 
     result = render_content(_content(), config, tts_provider=_provider(session))
 
@@ -409,6 +410,7 @@ def test_render_content_falls_back_to_robotic_voice_and_says_so(tmp_path):
     provider = FallbackTTSProvider(_provider(session), FliteTTSProvider())
     config = Config()
     config.video.output_dir = str(tmp_path / "out")
+    config.video.audio_cache_dir = str(tmp_path / "audio")
 
     result = render_content(_content(), config, tts_provider=provider)
 

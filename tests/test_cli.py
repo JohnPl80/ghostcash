@@ -1126,3 +1126,85 @@ def test_run_live_skips_publishing_and_analytics_without_buffer_key(
     ).fetchone()
     conn.close()
     assert job_row == ("run_live", "SUCCEEDED")
+
+
+# -- the voice service's daily limit: wait, never robotic ---------------------
+
+
+class _OutOfQuotaVoice:
+    """A narrator that is out of quota for the day (the Gemini free tier
+    allows 10 speech requests a day)."""
+
+    cache_identity = None
+
+    def synthesize(self, text: str, output_path: str) -> None:
+        from ghostcash.video.tts import TTSQuotaExhaustedError
+
+        raise TTSQuotaExhaustedError("limit: 10 requests per day on Free Tier")
+
+
+def test_render_waits_when_the_voice_is_out_of_quota(isolated_project: Path, monkeypatch, capsys):
+    import ghostcash.cli.commands.render as render_cmd
+
+    main(["init"])
+    db_path = isolated_project / "data" / "ghostcash.db"
+    content_id = _insert_approved_content(db_path)
+    monkeypatch.setattr(render_cmd, "get_tts_provider", lambda config: _OutOfQuotaVoice())
+
+    exit_code = main(["render", "--count", "1"])
+
+    out = capsys.readouterr().out
+    assert exit_code == 0  # waiting is not a failure
+    assert "Rendered 0 of 1" in out
+    assert "[WAITING] 1 video(s)" in out and "10 requests per day" in out
+    assert f"[WAITING] #{content_id}" in out
+    assert "[FAILED]" not in out
+    conn = sqlite3.connect(db_path)
+    status, path = conn.execute("SELECT status, rendered_video_path FROM content").fetchone()
+    job = conn.execute("SELECT status FROM jobs WHERE job_type = 'render_videos'").fetchone()
+    conn.close()
+    assert (status, path) == ("APPROVED", None)  # picked up again on the next run
+    assert job == ("SUCCEEDED",)
+
+
+def test_run_reports_waiting_videos_and_keeps_going(isolated_project: Path, monkeypatch, capsys):
+    import ghostcash.cli.commands.run as run_cmd
+
+    main(["init"])
+    monkeypatch.setenv("AI_API_KEY", "fake-key-for-test")
+    monkeypatch.delenv("BUFFER_API_KEY", raising=False)
+    fake_provider = FakeAIProvider(
+        topics_response={"topics": [sample_raw_topic()]},
+        content_response=sample_content_draft(),
+    )
+    monkeypatch.setattr(run_cmd, "get_ai_provider", lambda ai_config: fake_provider)
+    monkeypatch.setattr(run_cmd, "get_tts_provider", lambda config: _OutOfQuotaVoice())
+
+    exit_code = main(["run", "--dry-run", "--topics-count", "1", "--content-count", "1"])
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "[WAITING] 1 video(s)" in out
+    assert "Videos rendered: 0" in out
+    conn = sqlite3.connect(isolated_project / "data" / "ghostcash.db")
+    status = conn.execute("SELECT status FROM content ORDER BY id DESC LIMIT 1").fetchone()[0]
+    conn.close()
+    assert status == "APPROVED"
+
+
+def test_queue_counts_and_names_videos_waiting_to_be_rendered(
+    isolated_project: Path, monkeypatch, capsys, tmp_path
+):
+    main(["init"])
+    db_path = isolated_project / "data" / "ghostcash.db"
+    for _ in range(5):  # 5 / 5 per day = 1 day: not below the alert threshold
+        _insert_approved_content(db_path, status="APPROVED")
+    output_file = tmp_path / "github_output.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+
+    exit_code = main(["queue"])
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "5 waiting to be rendered" in out
+    assert "approved_count=5" in output_file.read_text(encoding="utf-8")

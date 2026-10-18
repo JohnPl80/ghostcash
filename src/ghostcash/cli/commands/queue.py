@@ -48,6 +48,7 @@ def _write_github_output(status: QueueStatus) -> None:
         fh.write(f"below_alert={'true' if status.is_below_alert_threshold else 'false'}\n")
         fh.write(f"ready_count={status.ready_count}\n")
         fh.write(f"scheduled_count={status.scheduled_count}\n")
+        fh.write(f"approved_count={status.approved_count}\n")
         fh.write(f"days_remaining={status.days_remaining:.2f}\n")
 
 
@@ -64,7 +65,8 @@ def _write_github_summary(status: QueueStatus, days_remaining: float) -> None:
     with Path(summary_path).open("a", encoding="utf-8") as fh:
         fh.write(
             f"\n**Publishing queue:** {marker} - {days_remaining:.1f} days remaining "
-            f"({status.ready_count} ready, {status.scheduled_count} scheduled; "
+            f"({status.ready_count} ready, {status.scheduled_count} scheduled"
+            f"{status.waiting_note}; "
             f"target {status.target_days}d, emergency <{status.emergency_threshold_days}d, "
             f"alert <{status.alert_threshold_days}d)\n"
         )
@@ -85,7 +87,8 @@ def run(args: argparse.Namespace) -> int:
         conn.close()
 
     print(
-        f"Queue: {status.ready_count} ready, {status.scheduled_count} scheduled "
+        f"Queue: {status.ready_count} ready, {status.scheduled_count} scheduled"
+        f"{status.waiting_note} "
         f"(~{status.days_remaining:.1f} days at {config.publishing.posts_per_day}/day)."
     )
     print(

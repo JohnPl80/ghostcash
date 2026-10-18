@@ -115,3 +115,31 @@ def test_queue_ignores_rejected_and_postless_scheduled_content(migrated_conn):
     _insert_scheduled_content(migrated_conn, ["FAILED"], count=1)
 
     assert get_queue_status(migrated_conn, Config()).scheduled_count == 0
+
+
+def test_queue_counts_approved_content_waiting_for_its_video(migrated_conn):
+    """Scripts approved but not yet rendered (the voice service's daily limit
+    ran out) will become videos on a later run, so they are runway too -
+    otherwise the emergency generator keeps writing scripts that pile up."""
+    _insert_content(migrated_conn, "APPROVED", 5)
+    _insert_content(migrated_conn, "FAILED", 2)  # permanently broken: not counted
+    migrated_conn.execute(
+        "INSERT INTO content (topic, category, status, rendered_video_path) "
+        "VALUES ('t', 'AI', 'APPROVED', '/tmp/already.mp4')"
+    )
+    migrated_conn.commit()
+    config = Config()
+    config.publishing.posts_per_day = 5
+
+    status = get_queue_status(migrated_conn, config)
+
+    assert status.approved_count == 5
+    assert status.days_remaining == 1.0
+    assert status.waiting_note == ", 5 waiting to be rendered"
+
+
+def test_queue_waiting_note_is_empty_when_nothing_waits(migrated_conn):
+    _insert_content(migrated_conn, "READY", 2)
+    status = get_queue_status(migrated_conn, Config())
+    assert status.approved_count == 0
+    assert status.waiting_note == ""

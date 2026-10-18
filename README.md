@@ -212,9 +212,10 @@ fully offline, but it is robotic.
 narration is spoken by Google's Gemini speech models
 (`gemini-3.8-flash-tts` by default) instead. It uses the same
 `AI_API_KEY` as the text generation - nothing new to sign up for - and
-the models are listed as free of charge on Google's pricing page, though
-Google does not publish the free-tier request quota (your AI Studio
-"rate limit" page shows the live numbers). Choose the voice with
+the models are free of charge, but with strict limits: on the free tier
+Google allows **10 speech requests per day and 3 per minute** (your AI
+Studio "rate limit" page shows the live numbers; they reset at midnight
+UTC). Choose the voice with
 `video.tts_gemini_voice` (Kore, Puck, Charon, Zephyr, Fenrir, Leda, Aoede
 and more) and the delivery with `video.tts_gemini_style`. Audition them
 without rendering anything:
@@ -226,11 +227,28 @@ ghostcash voice-test --provider flite     # the robotic one, to compare
 ```
 
 This writes `assets/generated/voice-test.wav`; if the voice does not
-work, the real error is printed. During a real render, a failed Gemini
-call (quota, outage) is retried, and if it still fails the video is made
-with the robotic voice *and the command prints a `[warn]` line saying so*
-(`video.tts_fallback: flite`). Set `tts_fallback: none` if you would
-rather skip such a video and have it retried on the next run.
+work, the real error is printed.
+
+**Living with the free-tier limits.** GhostCash is built around them:
+
+- *One request per video, ever.* After a narration is recorded it is saved
+  in `video.audio_cache_dir` (`data/audio`, kept between GitHub runs with
+  the database). Re-making a video - which GitHub runners must do, since
+  they start with an empty disk - reuses the saved audio instead of asking
+  Google again. The saved audio is deleted once the video is published.
+- *Paced requests.* `video.tts_gemini_min_interval_seconds` (21) leaves
+  enough time between requests to stay under 3 a minute. A paid account
+  can set it to 0.
+- *Daily limit reached = wait, never robotic.* When Google says the day's
+  10 requests are used, GhostCash stops asking at once. With the default
+  `video.tts_fallback: none` the videos stay APPROVED, the render prints
+  `[WAITING]` lines (not errors), and the next scheduled run - after the
+  midnight-UTC reset - makes them. The publishing queue counts such videos
+  as "waiting to be rendered", so the emergency generator does not pile up
+  extra scripts.
+- Set `tts_fallback: flite` only if you would rather post *something*
+  with the robotic voice than wait; the command then prints a `[warn]`
+  line for every such video.
 
 **Templates** (section 17) are the three from the spec - Information,
 List, Problem/Solution - each with a fixed scene *structure* in
@@ -774,10 +792,12 @@ branches later steps on that step's own output instead.
 - **`ghostcash render` (or `health`) says ffmpeg lacks 'flite' support**
   - install the standard distro package rather than a minimal custom
     build: `sudo apt-get install -y ffmpeg fonts-dejavu-core`.
-- **`ghostcash voice-test` fails, or `render` prints "used the robotic
-  backup voice"** - the message after it is Google's own reason. A
-  daily/per-minute quota message means wait or switch
-  `tts_gemini_model` to `gemini-3.8-flash-lite-tts`; "API key not valid"
+- **`ghostcash voice-test` fails, or `render` prints `[WAITING]` /
+  "used the robotic backup voice"** - the message after it is Google's own
+  reason. "limit: 10 requests per day" means the free daily allowance is
+  used up: the videos wait and are made after the midnight-UTC reset (or
+  switch `tts_gemini_model` to `gemini-3.8-flash-lite-tts`, whose limit may
+  differ - check your AI Studio rate-limit page); "API key not valid"
   means `AI_API_KEY` is wrong; "model not found" means the speech model
   name changed - see https://ai.google.dev/gemini-api/docs/speech-generation.
   Setting `tts_provider: flite` always works offline.

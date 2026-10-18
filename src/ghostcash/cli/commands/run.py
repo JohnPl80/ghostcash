@@ -81,6 +81,7 @@ from ghostcash.publishing.pipeline import PublishingSetupError, publish_batch, s
 from ghostcash.video.renderer import (
     RenderError,
     backup_voice_notice,
+    deferred_notice,
     flite_required,
     get_tts_provider,
     render_batch,
@@ -165,6 +166,9 @@ def run(args: argparse.Namespace) -> int:
     voice_notice = backup_voice_notice(tts_provider)
     if voice_notice:
         print(voice_notice)
+    waiting_notice = deferred_notice(render_outcomes)
+    if waiting_notice:
+        print(waiting_notice)
 
     # 4. Publication schedule (sections 19-22) - real Buffer scheduling
     # in a live run, a pure local count (no network call) in dry-run.

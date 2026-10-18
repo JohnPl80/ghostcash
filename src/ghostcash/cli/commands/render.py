@@ -17,7 +17,9 @@ from ghostcash.database.connection import get_connection
 from ghostcash.database.jobs import fail_job, start_job, succeed_job
 from ghostcash.video.renderer import (
     RenderError,
+    RetryLater,
     backup_voice_notice,
+    deferred_notice,
     flite_required,
     get_tts_provider,
     render_batch,
@@ -71,7 +73,14 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     succeeded = [c for c, result, _ in outcomes if result is not None]
-    failed = [(c, error) for c, result, error in outcomes if result is None]
+    waiting = [
+        c for c, result, error in outcomes if result is None and isinstance(error, RetryLater)
+    ]
+    failed = [
+        (c, error)
+        for c, result, error in outcomes
+        if result is None and not isinstance(error, RetryLater)
+    ]
 
     if succeeded or not failed:
         succeed_job(conn, job_id)
@@ -83,12 +92,17 @@ def run(args: argparse.Namespace) -> int:
     notice = backup_voice_notice(tts_provider)
     if notice:
         print(notice)
+    waiting_notice = deferred_notice(outcomes)
+    if waiting_notice:
+        print(waiting_notice)
     for content, result, _ in outcomes:
         if result is not None:
             print(
                 f"  [READY]  #{content.id} {content.title} -> "
                 f"{result.output_path} ({result.duration_seconds:.1f}s)"
             )
+    for content in waiting:
+        print(f"  [WAITING] #{content.id} {content.title}")
     for content, error in failed:
         print(f"  [FAILED] #{content.id} {content.title}: {error}")
 

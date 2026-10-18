@@ -102,7 +102,8 @@ def run(args: argparse.Namespace) -> int:
             )
 
     print(
-        f"\nQueue: {queue_status.ready_count} ready, {queue_status.scheduled_count} scheduled "
+        f"\nQueue: {queue_status.ready_count} ready, {queue_status.scheduled_count} scheduled"
+        f"{queue_status.waiting_note} "
         f"(~{queue_status.days_remaining:.1f} days at {config.publishing.posts_per_day}/day, "
         f"target {queue_status.target_days} days)."
     )

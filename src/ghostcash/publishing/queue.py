@@ -1,6 +1,7 @@
 """Publishing queue depth (CLAUDE.md section 22).
 
-Turns "how much READY content plus content still waiting in Buffer exists" into a days-of-runway
+Turns "how much READY content, content still waiting in Buffer, and
+approved scripts waiting for their video exists" into a days-of-runway
 estimate against config.publishing.posts_per_day, compared to the
 configured buffer targets.
 
@@ -26,6 +27,16 @@ class QueueStatus:
     target_days: int
     emergency_threshold_days: int
     alert_threshold_days: int
+    # Approved scripts whose video has not been made yet (for example the
+    # voice service's daily allowance ran out). They will become videos on
+    # a later run, so they count towards the runway - otherwise the
+    # emergency generator would keep writing scripts that pile up unrendered.
+    approved_count: int = 0
+
+    @property
+    def waiting_note(self) -> str:
+        """ ", N waiting to be rendered" for the status line, or "" if none."""
+        return f", {self.approved_count} waiting to be rendered" if self.approved_count else ""
 
     @property
     def is_below_emergency_threshold(self) -> bool:
@@ -59,12 +70,22 @@ def count_awaiting_publication(conn: sqlite3.Connection) -> int:
     )
 
 
+def count_waiting_to_render(conn: sqlite3.Connection) -> int:
+    """Approved content that has no video yet (will be rendered on a later run)."""
+    return int(
+        conn.execute(
+            "SELECT COUNT(*) FROM content WHERE status = 'APPROVED' AND rendered_video_path IS NULL"
+        ).fetchone()[0]
+    )
+
+
 def get_queue_status(conn: sqlite3.Connection, config: Config) -> QueueStatus:
     ready_count = conn.execute("SELECT COUNT(*) FROM content WHERE status = 'READY'").fetchone()[0]
     scheduled_count = count_awaiting_publication(conn)
+    approved_count = count_waiting_to_render(conn)
 
     posts_per_day = max(config.publishing.posts_per_day, 1)
-    days_remaining = (ready_count + scheduled_count) / posts_per_day
+    days_remaining = (ready_count + scheduled_count + approved_count) / posts_per_day
 
     return QueueStatus(
         ready_count=ready_count,
@@ -73,4 +94,5 @@ def get_queue_status(conn: sqlite3.Connection, config: Config) -> QueueStatus:
         target_days=config.queue.target_days,
         emergency_threshold_days=config.queue.emergency_threshold_days,
         alert_threshold_days=config.queue.alert_threshold_days,
+        approved_count=approved_count,
     )
