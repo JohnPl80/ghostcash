@@ -17,6 +17,8 @@ from ghostcash.database.connection import get_connection
 from ghostcash.database.jobs import fail_job, start_job, succeed_job
 from ghostcash.video.renderer import (
     RenderError,
+    backup_voice_notice,
+    flite_required,
     get_tts_provider,
     render_batch,
     reset_missing_renders,
@@ -31,7 +33,7 @@ def run(args: argparse.Namespace) -> int:
         print(f"[error] {exc}")
         return 1
 
-    if not is_flite_available(config.video.ffmpeg_binary):
+    if flite_required(config) and not is_flite_available(config.video.ffmpeg_binary):
         print(
             "[error] ffmpeg does not appear to support the 'flite' filter needed for "
             "local TTS. The standard Ubuntu/Debian ffmpeg package includes it; a "
@@ -78,6 +80,9 @@ def run(args: argparse.Namespace) -> int:
     conn.close()
 
     print(f"Rendered {len(succeeded)} of {len(outcomes)} content item(s).")
+    notice = backup_voice_notice(tts_provider)
+    if notice:
+        print(notice)
     for content, result, _ in outcomes:
         if result is not None:
             print(

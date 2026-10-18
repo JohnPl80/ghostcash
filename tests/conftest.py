@@ -109,10 +109,13 @@ def isolated_project(tmp_path, monkeypatch):
     (project_dir / "config").mkdir(parents=True)
     (project_dir / "templates" / "video").mkdir(parents=True)
 
-    (project_dir / "config" / "config.example.yaml").write_text(
-        (REPO_ROOT / "config" / "config.example.yaml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    # The shipped example config selects the Gemini narrator voice, which is
+    # a network call. Tests must never reach the real network (CLAUDE.md
+    # section 44), so the throwaway project uses the offline flite voice;
+    # the Gemini voice has its own mocked tests (test_video_gemini_tts.py).
+    example_config = (REPO_ROOT / "config" / "config.example.yaml").read_text(encoding="utf-8")
+    example_config = example_config.replace("  tts_provider: gemini", "  tts_provider: flite")
+    (project_dir / "config" / "config.example.yaml").write_text(example_config, encoding="utf-8")
     (project_dir / "config" / "content_categories.yaml").write_text(
         (REPO_ROOT / "config" / "content_categories.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",

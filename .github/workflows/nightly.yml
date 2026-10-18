@@ -169,6 +169,8 @@ jobs:
 
       - name: 10. Render approved content to video
         if: steps.secrets_check.outputs.has_ai_key == 'true'
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}  # the Gemini narrator voice
         run: ghostcash render
 
       # Skips cleanly if BUFFER_API_KEY or publishing.github_repo aren't

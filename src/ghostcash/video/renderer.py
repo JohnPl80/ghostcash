@@ -26,7 +26,13 @@ from ghostcash.models.content import Content
 from ghostcash.video.subtitles import write_ass_subtitles
 from ghostcash.video.templates import TEMPLATES_DIR, VideoTemplate, load_template
 from ghostcash.video.text_utils import chunk_evenly, split_sentences, wrap_text_to_width
-from ghostcash.video.tts import FliteTTSProvider, TTSError, TTSProvider
+from ghostcash.video.tts import (
+    FallbackTTSProvider,
+    FliteTTSProvider,
+    GeminiTTSProvider,
+    TTSError,
+    TTSProvider,
+)
 
 
 class RenderError(Exception):
@@ -49,13 +55,62 @@ class RenderResult:
     scenes: list[Scene] = field(default_factory=list)
 
 
+def build_gemini_tts(
+    config: Config,
+    voice: str | None = None,
+    model: str | None = None,
+    style: str | None = None,
+) -> GeminiTTSProvider:
+    """The Gemini speech provider from config, with optional overrides
+    (used by `ghostcash voice-test` to audition voices)."""
+    video = config.video
+    return GeminiTTSProvider(
+        api_key=config.ai.api_key,
+        model=model or video.tts_gemini_model or None,
+        voice=voice or video.tts_gemini_voice or None,
+        style=video.tts_gemini_style if style is None else style,
+    )
+
+
+def flite_required(config: Config) -> bool:
+    """Whether this configuration can ever need ffmpeg's flite filter:
+    flite is the main voice, or the backup for the Gemini voice."""
+    provider_name = (config.video.tts_provider or "").strip().lower()
+    if provider_name == "gemini":
+        return (config.video.tts_fallback or "").strip().lower() == "flite"
+    return True
+
+
 def get_tts_provider(config: Config) -> TTSProvider:
     provider_name = (config.video.tts_provider or "").strip().lower()
+    flite = FliteTTSProvider(voice=config.video.tts_voice, ffmpeg_binary=config.video.ffmpeg_binary)
     if provider_name == "flite":
-        return FliteTTSProvider(
-            voice=config.video.tts_voice, ffmpeg_binary=config.video.ffmpeg_binary
-        )
-    raise RenderError(f"Unknown TTS provider: {provider_name!r}. Currently implemented: flite.")
+        return flite
+    if provider_name == "gemini":
+        gemini = build_gemini_tts(config)
+        fallback_name = (config.video.tts_fallback or "").strip().lower()
+        if fallback_name == "flite":
+            return FallbackTTSProvider(
+                gemini, flite, primary_label="Gemini voice", fallback_label="robotic backup voice"
+            )
+        if fallback_name in ("", "none"):
+            return gemini
+        raise RenderError(f"Unknown video.tts_fallback: {fallback_name!r}. Use 'flite' or 'none'.")
+    raise RenderError(
+        f"Unknown TTS provider: {provider_name!r}. Currently implemented: flite, gemini."
+    )
+
+
+def backup_voice_notice(tts_provider: TTSProvider) -> str | None:
+    """A one-line warning when the render fell back to the backup voice,
+    else None. Callers print it so a robotic voice never ships unnoticed."""
+    reasons = getattr(tts_provider, "fallback_reasons", None)
+    if not reasons:
+        return None
+    return (
+        f"[warn] {len(reasons)} narration(s) used the robotic backup voice because the "
+        f"Gemini voice failed. First reason: {reasons[0]}"
+    )
 
 
 def _probe_duration_seconds(path: str | Path, ffprobe_binary: str) -> float:

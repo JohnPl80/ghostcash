@@ -34,8 +34,9 @@ from ghostcash.products.factory import get_store
 from ghostcash.publishing.base import PublisherError
 from ghostcash.publishing.buffer import BufferPublisher
 from ghostcash.publishing.factory import get_publisher
+from ghostcash.video.renderer import build_gemini_tts, flite_required
 from ghostcash.video.templates import TEMPLATE_NAMES, TemplateError, load_template
-from ghostcash.video.tts import is_flite_available
+from ghostcash.video.tts import TTSError, is_flite_available
 
 REQUIRED_TABLES: tuple[str, ...] = (
     "content",
@@ -162,7 +163,7 @@ def check_system(config: Config | None, db_path: str | None) -> HealthCheckResul
     ffmpeg_binary = config.video.ffmpeg_binary if config else "ffmpeg"
     if is_flite_available(ffmpeg_binary):
         result.notes.append("[ok] ffmpeg has libflite support (local TTS for `ghostcash render`)")
-    else:
+    elif config is None or flite_required(config):
         result.issues.append(
             f"ffmpeg ({ffmpeg_binary}) does not support the 'flite' filter needed for "
             "local TTS - the standard Ubuntu/Debian ffmpeg package includes it"
@@ -189,6 +190,22 @@ def check_system(config: Config | None, db_path: str | None) -> HealthCheckResul
                 result.issues.append(f"AI API ({config.ai.provider}) not reachable: {exc}")
         else:
             result.notes.append("[info] AI_API_KEY not set - `ghostcash generate` needs it")
+
+        if (config.video.tts_provider or "").strip().lower() == "gemini":
+            if not config.ai.api_key:
+                result.notes.append(
+                    "[warn] video.tts_provider is 'gemini' but AI_API_KEY is not set - "
+                    "videos will use the robotic backup voice"
+                )
+            else:
+                try:
+                    confirmation = build_gemini_tts(config).check_connectivity()
+                    result.notes.append(f"[ok] Gemini voice: {confirmation}")
+                except TTSError as exc:
+                    # Not an "issue": renders still work through the backup
+                    # voice, so this is worth seeing but must not fail the
+                    # hourly health check.
+                    result.notes.append(f"[warn] Gemini voice not available: {exc}")
 
         if config.buffer_api_key:
             try:

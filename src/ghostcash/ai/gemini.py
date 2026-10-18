@@ -305,11 +305,22 @@ class GeminiProvider(AIProvider):
 
     @staticmethod
     def _format_error(response: requests.Response) -> str:
+        """Google's error body is usually {"error": {"message": ...}}, but
+        can arrive as a JSON list of such objects or as plain text; none of
+        those may crash the error report (which would hide the real error)."""
+        message = response.text
         try:
             payload = response.json()
-            message = payload.get("error", {}).get("message", response.text)
         except ValueError:
-            message = response.text
+            payload = None
+        if isinstance(payload, list) and payload:
+            payload = payload[0]
+        if isinstance(payload, dict):
+            error = payload.get("error")
+            if isinstance(error, dict) and error.get("message"):
+                message = str(error["message"])
+            elif isinstance(error, str) and error:
+                message = error
         return f"Gemini API error {response.status_code}: {message}"
 
     @staticmethod

@@ -352,3 +352,23 @@ def test_to_response_schema_converts_json_schema_recursively():
     assert result["properties"]["b"]["type"] == "ARRAY"
     assert result["properties"]["b"]["items"]["propertyOrdering"] == ["c"]
     assert repr(schema) == original  # the caller's schema is never mutated
+
+
+def test_error_body_that_is_a_json_list_is_reported_not_crashed_on():
+    session = MagicMock()
+    session.post.return_value = _mock_response(
+        400, [{"error": {"code": 400, "message": "API key not valid."}}]
+    )
+    provider = GeminiProvider(api_key="secret", session=session, retry_delays=())
+    with pytest.raises(AIProviderError, match="API key not valid"):
+        provider.generate("hi")
+
+
+def test_error_body_that_is_plain_text_is_reported():
+    session = MagicMock()
+    response = _mock_response(500, None, text="upstream exploded")
+    response.json.side_effect = ValueError("not json")
+    session.post.return_value = response
+    provider = GeminiProvider(api_key="secret", session=session, retry_delays=())
+    with pytest.raises(AIProviderError, match="upstream exploded"):
+        provider.generate("hi")

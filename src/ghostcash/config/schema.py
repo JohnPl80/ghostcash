@@ -207,9 +207,21 @@ class VideoConfig:
 
     # section 18: TTS abstraction. "flite" uses ffmpeg's built-in
     # libflite source filter - free, fully local, zero extra
-    # dependencies beyond ffmpeg itself.
+    # dependencies beyond ffmpeg itself, but robotic. "gemini" uses
+    # Google's Gemini speech models (natural voice, same AI_API_KEY, free
+    # tier) and needs the network.
     tts_provider: str = "flite"
-    tts_voice: str = "slt"
+    tts_voice: str = "slt"  # flite voice name
+    # Settings for tts_provider "gemini". Voice names: Kore, Puck, Charon,
+    # Zephyr, Fenrir, Leda, Aoede, ... (30 in all; try them with
+    # `ghostcash voice-test --voice NAME`).
+    tts_gemini_model: str = "gemini-3.8-flash-tts"
+    tts_gemini_voice: str = "Kore"
+    tts_gemini_style: str = "clear, upbeat and friendly, at a brisk natural pace"
+    # What to do when the Gemini voice fails (quota, outage): "flite" makes
+    # the video with the robotic voice and says so; "none" fails that
+    # video, which stays queued and is retried on the next run.
+    tts_fallback: str = "flite"
 
     # section 61 Phase 4 / 62 DoD example: "5 videos rendered" per run.
     render_per_run: int = 5

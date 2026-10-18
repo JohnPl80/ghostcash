@@ -42,6 +42,7 @@ from ghostcash.cli.commands import queue as queue_cmd
 from ghostcash.cli.commands import render as render_cmd
 from ghostcash.cli.commands import report as report_cmd
 from ghostcash.cli.commands import run as run_cmd
+from ghostcash.cli.commands import voice_test as voice_test_cmd
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -92,6 +93,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override video.render_per_run for this invocation",
     )
+
+    voice_parser = subparsers.add_parser(
+        "voice-test", help="Create a short audio sample with the configured (or a chosen) voice"
+    )
+    voice_parser.add_argument("--text", default=voice_test_cmd.DEFAULT_SAMPLE_TEXT)
+    voice_parser.add_argument("--voice", default=None, help="Voice name, e.g. Kore, Puck, Charon")
+    voice_parser.add_argument("--model", default=None, help="Gemini speech model id")
+    voice_parser.add_argument("--style", default=None, help="How it should sound")
+    voice_parser.add_argument("--provider", default=None, choices=["gemini", "flite"])
+    voice_parser.add_argument("--output", default="assets/generated/voice-test.wav")
 
     publish_parser = subparsers.add_parser(
         "publish", help="Sync Buffer channels and publish READY content"
@@ -236,6 +247,8 @@ def main(argv: list[str] | None = None) -> int:
         return health_cmd.run(args)
     if args.command == "generate":
         return _run_against_database(generate_cmd.run, args)
+    if args.command == "voice-test":
+        return voice_test_cmd.run(args)
     if args.command == "render":
         return _run_against_database(render_cmd.run, args)
     if args.command == "publish":

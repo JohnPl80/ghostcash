@@ -142,7 +142,7 @@ video:
   max_duration_seconds: 35
   # TTS: "flite" uses ffmpeg's built-in libflite filter - free, fully
   # local, no extra dependency beyond ffmpeg itself.
-  tts_provider: flite
+  tts_provider: gemini
   tts_voice: slt
   render_per_run: 5
   output_dir: assets/generated

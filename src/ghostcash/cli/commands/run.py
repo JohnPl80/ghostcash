@@ -78,7 +78,13 @@ from ghostcash.publishing.channels import resolve_organization_id, sync_channels
 from ghostcash.publishing.factory import get_media_host, get_publisher
 from ghostcash.publishing.media_host import MediaHostError
 from ghostcash.publishing.pipeline import PublishingSetupError, publish_batch, select_ready_content
-from ghostcash.video.renderer import RenderError, get_tts_provider, render_batch
+from ghostcash.video.renderer import (
+    RenderError,
+    backup_voice_notice,
+    flite_required,
+    get_tts_provider,
+    render_batch,
+)
 from ghostcash.video.tts import TTSError, is_flite_available
 
 
@@ -97,7 +103,7 @@ def run(args: argparse.Namespace) -> int:
         print("        set them in .env, then re-run `ghostcash run`.")
         return 1
 
-    if not is_flite_available(config.video.ffmpeg_binary):
+    if flite_required(config) and not is_flite_available(config.video.ffmpeg_binary):
         print(
             "[error] ffmpeg does not appear to support the 'flite' filter needed for "
             "local TTS. The standard Ubuntu/Debian ffmpeg package includes it; a "
@@ -156,6 +162,9 @@ def run(args: argparse.Namespace) -> int:
         print(f"[error] rendering failed: {exc}")
         return 1
     videos_rendered = len([outcome for outcome in render_outcomes if outcome[1] is not None])
+    voice_notice = backup_voice_notice(tts_provider)
+    if voice_notice:
+        print(voice_notice)
 
     # 4. Publication schedule (sections 19-22) - real Buffer scheduling
     # in a live run, a pure local count (no network call) in dry-run.

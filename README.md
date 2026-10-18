@@ -192,7 +192,32 @@ source filter rather than a separate TTS package. If your ffmpeg build
 includes libflite - the standard Ubuntu/Debian `ffmpeg` package does -
 speech synthesis needs *zero* dependencies beyond ffmpeg itself, which
 GhostCash already requires. `ghostcash health` checks for this and
-tells you plainly if your ffmpeg build lacks it.
+tells you plainly if your ffmpeg build lacks it. That voice is free and
+fully offline, but it is robotic.
+
+**Natural voice (recommended).** Set `video.tts_provider: gemini` and the
+narration is spoken by Google's Gemini speech models
+(`gemini-3.8-flash-tts` by default) instead. It uses the same
+`AI_API_KEY` as the text generation - nothing new to sign up for - and
+the models are listed as free of charge on Google's pricing page, though
+Google does not publish the free-tier request quota (your AI Studio
+"rate limit" page shows the live numbers). Choose the voice with
+`video.tts_gemini_voice` (Kore, Puck, Charon, Zephyr, Fenrir, Leda, Aoede
+and more) and the delivery with `video.tts_gemini_style`. Audition them
+without rendering anything:
+
+```bash
+ghostcash voice-test                      # the configured voice
+ghostcash voice-test --voice Puck         # another voice
+ghostcash voice-test --provider flite     # the robotic one, to compare
+```
+
+This writes `assets/generated/voice-test.wav`; if the voice does not
+work, the real error is printed. During a real render, a failed Gemini
+call (quota, outage) is retried, and if it still fails the video is made
+with the robotic voice *and the command prints a `[warn]` line saying so*
+(`video.tts_fallback: flite`). Set `tts_fallback: none` if you would
+rather skip such a video and have it retried on the next run.
 
 **Templates** (section 17) are the three from the spec - Information,
 List, Problem/Solution - each with a fixed scene *structure* in
@@ -727,6 +752,13 @@ branches later steps on that step's own output instead.
 - **`ghostcash render` (or `health`) says ffmpeg lacks 'flite' support**
   - install the standard distro package rather than a minimal custom
     build: `sudo apt-get install -y ffmpeg fonts-dejavu-core`.
+- **`ghostcash voice-test` fails, or `render` prints "used the robotic
+  backup voice"** - the message after it is Google's own reason. A
+  daily/per-minute quota message means wait or switch
+  `tts_gemini_model` to `gemini-3.8-flash-lite-tts`; "API key not valid"
+  means `AI_API_KEY` is wrong; "model not found" means the speech model
+  name changed - see https://ai.google.dev/gemini-api/docs/speech-generation.
+  Setting `tts_provider: flite` always works offline.
 - **`ghostcash publish` says your Buffer account has multiple
   organizations** - set `publishing.organization_id` in `config.yaml`
   to the one you want (the error message lists the available IDs).

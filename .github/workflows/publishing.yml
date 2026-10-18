@@ -118,6 +118,8 @@ jobs:
       - name: Re-render videos that disappeared since an earlier run
         if: steps.secrets_check.outputs.has_buffer_key == 'true'
         continue-on-error: true
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}  # the Gemini narrator voice
         run: ghostcash render
 
       # Publish/schedule whatever is READY. Buffer DRAFTS by default
