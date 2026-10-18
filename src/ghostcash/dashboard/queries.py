@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 
 from ghostcash.config.schema import Config
 from ghostcash.health import check_system
-from ghostcash.publishing.queue import get_queue_status
+from ghostcash.publishing.queue import count_awaiting_publication, get_queue_status
 
 
 def _iso(dt: datetime) -> str:
@@ -98,9 +98,8 @@ def get_content_counts(conn: sqlite3.Connection) -> ContentCounts:
     published = conn.execute(
         "SELECT COUNT(DISTINCT content_id) FROM published_posts WHERE status = 'PUBLISHED'"
     ).fetchone()[0]
-    queued = conn.execute(
-        "SELECT COUNT(*) FROM content WHERE status IN ('READY', 'SCHEDULED')"
-    ).fetchone()[0]
+    ready = conn.execute("SELECT COUNT(*) FROM content WHERE status = 'READY'").fetchone()[0]
+    queued = ready + count_awaiting_publication(conn)
     return ContentCounts(published=published, queued=queued)
 
 

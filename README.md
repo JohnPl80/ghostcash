@@ -266,7 +266,9 @@ means nothing reaches a real audience until you open Buffer and approve
 it yourself. Set that to `AUTONOMOUS` in `config.yaml` once you trust
 the pipeline. To reject a draft, simply delete it in Buffer: the daily
 analytics job notices the post is gone, skips it and carries on (the
-count is printed as "N tracked post(s) no longer exist in Buffer").
+count is printed as "N tracked post(s) no longer exist in Buffer"), and
+once every post of a content item is gone that item is marked `REJECTED`
+and stops counting toward the queue.
 
 Built against Buffer's current official GraphQL API (verified
 2026-09-13 against developers.buffer.com), which surfaced two things
@@ -464,7 +466,12 @@ flags two conditions GitHub Actions can't see on its own: no job has
 once/day schedule before this fires).
 
 `ghostcash queue` (section 22) reports the publishing queue's
-days-of-runway against the configured emergency/alert thresholds. It
+days-of-runway against the configured emergency/alert thresholds.
+The runway counts content that is `READY` plus content that still has a
+post waiting in Buffer (a draft you have not approved, or a scheduled post
+not yet sent). Content whose posts have all gone out, or that you rejected
+by deleting its drafts in Buffer, no longer counts - so the number falls as
+posts are published and the low-content alarm can actually fire. It
 exists as its own command, separate from `ghostcash publish`, so a
 GitHub Actions step can check it both before an emergency
 generate+render pass (to decide whether to run one) and after (to

@@ -56,21 +56,49 @@ class CollectionResult:
     # Tracked posts Buffer no longer has (typically drafts the owner
     # deleted in Buffer to reject them). Skipped, never an error.
     posts_missing: int = 0
+    # Content whose every tracked post was deleted in Buffer: retired to
+    # REJECTED so it stops counting as queued content.
+    contents_rejected: int = 0
 
 
 def select_trackable_published_posts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     placeholders = ", ".join("?" for _ in _TRACKABLE_STATUSES)
     return conn.execute(
-        f"SELECT id, content_id, platform_id, external_post_id, status "
-        f"FROM published_posts "
-        f"WHERE status IN ({placeholders}) AND external_post_id IS NOT NULL",
+        f"SELECT pp.id, pp.content_id, pp.platform_id, pp.external_post_id, pp.status "
+        f"FROM published_posts pp JOIN content c ON c.id = pp.content_id "
+        f"WHERE pp.status IN ({placeholders}) AND pp.external_post_id IS NOT NULL "
+        f"AND c.status != 'REJECTED'",
         _TRACKABLE_STATUSES,
     ).fetchall()
+
+
+def _retire_content_with_no_posts_left(
+    conn: sqlite3.Connection, missing_by_content: dict[int, set[int]]
+) -> int:
+    """Mark SCHEDULED content REJECTED when every one of its tracked posts
+    is gone from Buffer (the owner deleted the drafts). Content that still
+    has at least one live post is left alone. Returns how many changed."""
+    placeholders = ", ".join("?" for _ in _TRACKABLE_STATUSES)
+    retired = 0
+    for content_id, missing_ids in missing_by_content.items():
+        rows = conn.execute(
+            f"SELECT id FROM published_posts WHERE content_id = ? "
+            f"AND status IN ({placeholders}) AND external_post_id IS NOT NULL",
+            (content_id, *_TRACKABLE_STATUSES),
+        ).fetchall()
+        if {row["id"] for row in rows} <= missing_ids:
+            cursor = conn.execute(
+                "UPDATE content SET status = 'REJECTED' WHERE id = ? AND status = 'SCHEDULED'",
+                (content_id,),
+            )
+            retired += cursor.rowcount
+    return retired
 
 
 def collect_analytics(publisher: BufferPublisher, conn: sqlite3.Connection) -> CollectionResult:
     rows = select_trackable_published_posts(conn)
     result = CollectionResult()
+    missing_by_content: dict[int, set[int]] = {}
 
     for row in rows:
         result.posts_checked += 1
@@ -78,6 +106,7 @@ def collect_analytics(publisher: BufferPublisher, conn: sqlite3.Connection) -> C
             post = publisher.get_post_status_and_metrics(row["external_post_id"])
         except PostNotFoundError:
             result.posts_missing += 1
+            missing_by_content.setdefault(row["content_id"], set()).add(row["id"])
             continue
 
         newly_sent = (
@@ -102,6 +131,7 @@ def collect_analytics(publisher: BufferPublisher, conn: sqlite3.Connection) -> C
         _upsert_content_performance(conn, row["content_id"], row["platform_id"], normalized)
         result.metrics_collected += 1
 
+    result.contents_rejected = _retire_content_with_no_posts_left(conn, missing_by_content)
     conn.commit()
     return result
 

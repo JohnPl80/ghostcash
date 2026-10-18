@@ -12,9 +12,39 @@ def _insert_content(conn, status, count=1):
     conn.commit()
 
 
+def _insert_scheduled_content(conn, post_statuses, count=1):
+    """SCHEDULED content, each with one published_posts row per entry in
+    `post_statuses` (e.g. ["DRAFT", "DRAFT"] = a draft on two channels)."""
+    conn.execute(
+        "INSERT OR IGNORE INTO platforms (name, buffer_channel_id) VALUES ('YOUTUBE', 'c')"
+    )
+    platform_id = conn.execute("SELECT id FROM platforms WHERE name = 'YOUTUBE'").fetchone()[0]
+    ids = []
+    for _ in range(count):
+        content_id = conn.execute(
+            "INSERT INTO content (topic, category, status) VALUES ('t', 'AI', 'SCHEDULED')"
+        ).lastrowid
+        for index, post_status in enumerate(post_statuses):
+            conn.execute(
+                "INSERT INTO published_posts "
+                "(content_id, platform_id, idempotency_key, external_post_id, status) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    content_id,
+                    platform_id,
+                    f"k{content_id}-{index}",
+                    f"p{content_id}-{index}",
+                    post_status,
+                ),
+            )
+        ids.append(content_id)
+    conn.commit()
+    return ids
+
+
 def test_queue_status_counts_ready_and_scheduled(migrated_conn):
     _insert_content(migrated_conn, "READY", 3)
-    _insert_content(migrated_conn, "SCHEDULED", 2)
+    _insert_scheduled_content(migrated_conn, ["DRAFT", "DRAFT"], count=2)
     _insert_content(migrated_conn, "DRAFT", 5)  # should not count
 
     config = Config()
@@ -61,3 +91,27 @@ def test_queue_status_guards_against_zero_posts_per_day(migrated_conn):
     status = get_queue_status(migrated_conn, config)
 
     assert status.days_remaining == 5.0  # treated as 1/day minimum
+
+
+def test_queue_ignores_content_whose_posts_already_went_out(migrated_conn):
+    # content.status stays SCHEDULED forever; once every post is PUBLISHED
+    # there is nothing left in the queue for it.
+    _insert_scheduled_content(migrated_conn, ["PUBLISHED", "PUBLISHED"], count=4)
+    _insert_scheduled_content(migrated_conn, ["SCHEDULED", "DRAFT"], count=1)
+
+    status = get_queue_status(migrated_conn, Config())
+
+    assert status.scheduled_count == 1
+
+
+def test_queue_counts_content_with_one_post_still_waiting(migrated_conn):
+    _insert_scheduled_content(migrated_conn, ["PUBLISHED", "DRAFT"], count=1)
+    assert get_queue_status(migrated_conn, Config()).scheduled_count == 1
+
+
+def test_queue_ignores_rejected_and_postless_scheduled_content(migrated_conn):
+    _insert_content(migrated_conn, "REJECTED", 3)
+    _insert_content(migrated_conn, "SCHEDULED", 2)  # no posts in Buffer at all
+    _insert_scheduled_content(migrated_conn, ["FAILED"], count=1)
+
+    assert get_queue_status(migrated_conn, Config()).scheduled_count == 0

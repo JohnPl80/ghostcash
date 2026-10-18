@@ -287,3 +287,8 @@ def _collect_analytics_for_real(conn: sqlite3.Connection, config: Config) -> Non
             f"{collection.posts_missing} tracked post(s) no longer exist in Buffer "
             "(deleted there) and were skipped."
         )
+        if collection.contents_rejected:
+            print(
+                f"{collection.contents_rejected} content item(s) had every post deleted and are "
+                "now marked REJECTED (they no longer count toward the queue)."
+            )

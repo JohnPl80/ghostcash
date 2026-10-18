@@ -356,3 +356,67 @@ def test_collect_analytics_still_fails_on_real_errors(migrated_conn):
 
     with pytest.raises(PublisherError, match="unauthorized"):
         collect_analytics(publisher, migrated_conn)
+
+
+def _lookup_gone(*gone_ids):
+    from ghostcash.publishing.base import PostNotFoundError
+
+    publisher = MagicMock(spec=BufferPublisher)
+
+    def lookup(post_id):
+        if post_id in gone_ids:
+            raise PostNotFoundError(f"Buffer has no post {post_id}")
+        return {"status": "draft", "metrics": []}
+
+    publisher.get_post_status_and_metrics.side_effect = lookup
+    return publisher
+
+
+def test_content_with_every_post_deleted_is_marked_rejected_and_no_longer_tracked(migrated_conn):
+    content_id = _insert_content(migrated_conn, status="SCHEDULED")
+    youtube = _insert_platform(migrated_conn, "YOUTUBE")
+    instagram = migrated_conn.execute(
+        "INSERT INTO platforms (name, buffer_channel_id) VALUES ('INSTAGRAM', 'ch2')"
+    ).lastrowid
+    migrated_conn.commit()
+    _insert_published_post(migrated_conn, content_id, youtube, "DRAFT", "yt", "k1")
+    _insert_published_post(migrated_conn, content_id, instagram, "DRAFT", "ig", "k2")
+
+    result = collect_analytics(_lookup_gone("yt", "ig"), migrated_conn)
+
+    assert result.posts_missing == 2
+    assert result.contents_rejected == 1
+    status = migrated_conn.execute("SELECT status FROM content WHERE id = ?", (content_id,))
+    assert status.fetchone()[0] == "REJECTED"
+    # ...and it is not asked about again.
+    assert select_trackable_published_posts(migrated_conn) == []
+
+
+def test_content_with_one_post_deleted_and_one_alive_stays_scheduled(migrated_conn):
+    content_id = _insert_content(migrated_conn, status="SCHEDULED")
+    youtube = _insert_platform(migrated_conn, "YOUTUBE")
+    instagram = migrated_conn.execute(
+        "INSERT INTO platforms (name, buffer_channel_id) VALUES ('INSTAGRAM', 'ch2')"
+    ).lastrowid
+    migrated_conn.commit()
+    _insert_published_post(migrated_conn, content_id, youtube, "DRAFT", "yt", "k1")
+    _insert_published_post(migrated_conn, content_id, instagram, "DRAFT", "ig", "k2")
+
+    result = collect_analytics(_lookup_gone("yt"), migrated_conn)
+
+    assert result.posts_missing == 1
+    assert result.contents_rejected == 0
+    status = migrated_conn.execute("SELECT status FROM content WHERE id = ?", (content_id,))
+    assert status.fetchone()[0] == "SCHEDULED"
+
+
+def test_a_winner_is_never_demoted_by_a_missing_post(migrated_conn):
+    content_id = _insert_content(migrated_conn, status="WINNER")
+    platform_id = _insert_platform(migrated_conn)
+    _insert_published_post(migrated_conn, content_id, platform_id, "PUBLISHED", "gone", "k1")
+
+    result = collect_analytics(_lookup_gone("gone"), migrated_conn)
+
+    assert result.contents_rejected == 0
+    status = migrated_conn.execute("SELECT status FROM content WHERE id = ?", (content_id,))
+    assert status.fetchone()[0] == "WINNER"

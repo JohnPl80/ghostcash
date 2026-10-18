@@ -129,11 +129,10 @@ def test_get_content_counts_published_comes_from_published_posts_not_content_sta
     counts = get_content_counts(migrated_conn)
 
     assert counts.published == 1
-    # "queued" mirrors publishing/queue.py's own definition exactly
-    # (status IN READY, SCHEDULED) - the SCHEDULED row still counts even
-    # though one of its platforms already published, since content.status
-    # is never flipped away from SCHEDULED by the existing pipeline.
-    assert counts.queued == 2
+    # "queued" mirrors publishing/queue.py's own definition: READY content
+    # plus content with a post still waiting in Buffer. The SCHEDULED row
+    # here has only a PUBLISHED post, so only the READY row is queued.
+    assert counts.queued == 1
 
 
 def test_get_content_list_filters_by_status(migrated_conn):

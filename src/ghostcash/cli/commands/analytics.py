@@ -67,6 +67,11 @@ def run(args: argparse.Namespace) -> int:
             f"{collection.posts_missing} tracked post(s) no longer exist in Buffer "
             "(deleted there) and were skipped."
         )
+        if collection.contents_rejected:
+            print(
+                f"{collection.contents_rejected} content item(s) had every post deleted and are "
+                "now marked REJECTED (they no longer count toward the queue)."
+            )
 
     if winner_results:
         winners = conn.execute("SELECT id FROM content WHERE status = 'WINNER'").fetchall()
