@@ -304,3 +304,55 @@ def test_evaluate_winners_writes_per_platform_winner_score(migrated_conn):
 
     row = migrated_conn.execute("SELECT winner_score FROM content_performance").fetchone()
     assert row["winner_score"] is not None
+
+
+# -- posts the owner deleted in Buffer (rejecting a draft) -------------------
+
+
+def test_collect_analytics_skips_posts_deleted_in_buffer_and_carries_on(migrated_conn):
+    from ghostcash.publishing.base import PostNotFoundError
+
+    content_id = _insert_content(migrated_conn)
+    platform_id = _insert_platform(migrated_conn)
+    _insert_published_post(
+        migrated_conn, content_id, platform_id, status="DRAFT", external_post_id="gone", key="k1"
+    )
+    _insert_published_post(
+        migrated_conn, content_id, platform_id, status="DRAFT", external_post_id="kept", key="k2"
+    )
+
+    publisher = MagicMock(spec=BufferPublisher)
+
+    def lookup(post_id):
+        if post_id == "gone":
+            raise PostNotFoundError("Buffer has no post gone")
+        return {"status": "sent", "sentAt": "2026-10-18T10:00:00Z", "metrics": []}
+
+    publisher.get_post_status_and_metrics.side_effect = lookup
+
+    result = collect_analytics(publisher, migrated_conn)
+
+    assert result.posts_checked == 2
+    assert result.posts_missing == 1
+    assert result.posts_marked_sent == 1
+    statuses = dict(
+        migrated_conn.execute("SELECT external_post_id, status FROM published_posts").fetchall()
+    )
+    assert statuses == {"gone": "DRAFT", "kept": "PUBLISHED"}
+
+
+def test_collect_analytics_still_fails_on_real_errors(migrated_conn):
+    import pytest
+
+    from ghostcash.publishing.base import PublisherError
+
+    content_id = _insert_content(migrated_conn)
+    platform_id = _insert_platform(migrated_conn)
+    _insert_published_post(migrated_conn, content_id, platform_id, status="DRAFT")
+    publisher = MagicMock(spec=BufferPublisher)
+    publisher.get_post_status_and_metrics.side_effect = PublisherError(
+        "Buffer API error: unauthorized"
+    )
+
+    with pytest.raises(PublisherError, match="unauthorized"):
+        collect_analytics(publisher, migrated_conn)

@@ -264,7 +264,9 @@ content item to each active platform - as a **Buffer draft** by default
 (`human_approval_mode.publishing: APPROVAL_REQUIRED`, section 52), which
 means nothing reaches a real audience until you open Buffer and approve
 it yourself. Set that to `AUTONOMOUS` in `config.yaml` once you trust
-the pipeline.
+the pipeline. To reject a draft, simply delete it in Buffer: the daily
+analytics job notices the post is gone, skips it and carries on (the
+count is printed as "N tracked post(s) no longer exist in Buffer").
 
 Built against Buffer's current official GraphQL API (verified
 2026-09-13 against developers.buffer.com), which surfaced two things

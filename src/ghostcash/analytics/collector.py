@@ -38,6 +38,7 @@ from ghostcash.analytics.winner import (
     normalize_component_value,
 )
 from ghostcash.config.schema import Config
+from ghostcash.publishing.base import PostNotFoundError
 from ghostcash.publishing.buffer import BufferPublisher
 
 # published_posts rows in these statuses still need checking: DRAFT/
@@ -52,6 +53,9 @@ class CollectionResult:
     posts_checked: int = 0
     posts_marked_sent: int = 0
     metrics_collected: int = 0
+    # Tracked posts Buffer no longer has (typically drafts the owner
+    # deleted in Buffer to reject them). Skipped, never an error.
+    posts_missing: int = 0
 
 
 def select_trackable_published_posts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -70,7 +74,11 @@ def collect_analytics(publisher: BufferPublisher, conn: sqlite3.Connection) -> C
 
     for row in rows:
         result.posts_checked += 1
-        post = publisher.get_post_status_and_metrics(row["external_post_id"])
+        try:
+            post = publisher.get_post_status_and_metrics(row["external_post_id"])
+        except PostNotFoundError:
+            result.posts_missing += 1
+            continue
 
         newly_sent = (
             row["status"] in ("SCHEDULED", "DRAFT")

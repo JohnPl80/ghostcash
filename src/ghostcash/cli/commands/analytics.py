@@ -62,6 +62,11 @@ def run(args: argparse.Namespace) -> int:
         f"{collection.posts_marked_sent} newly confirmed sent, "
         f"{collection.metrics_collected} with metrics collected."
     )
+    if collection.posts_missing:
+        print(
+            f"{collection.posts_missing} tracked post(s) no longer exist in Buffer "
+            "(deleted there) and were skipped."
+        )
 
     if winner_results:
         winners = conn.execute("SELECT id FROM content WHERE status = 'WINNER'").fetchall()

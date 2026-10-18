@@ -282,3 +282,8 @@ def _collect_analytics_for_real(conn: sqlite3.Connection, config: Config) -> Non
         f"{collection.metrics_collected} with metrics collected. "
         f"Evaluated {len(winner_results)} content item(s) for Winner Score."
     )
+    if collection.posts_missing:
+        print(
+            f"{collection.posts_missing} tracked post(s) no longer exist in Buffer "
+            "(deleted there) and were skipped."
+        )

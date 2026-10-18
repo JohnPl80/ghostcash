@@ -27,6 +27,13 @@ class PublisherError(Exception):
     channel/platform combination that isn't supported, validation, etc."""
 
 
+class PostNotFoundError(PublisherError):
+    """The provider has no such post any more - typically a draft or
+    scheduled post the owner deleted in Buffer's own interface (which is
+    how an unwanted draft is rejected). Not a failure of the system, so
+    callers that track posts skip it instead of aborting."""
+
+
 @dataclass
 class ScheduleResult:
     external_post_id: str

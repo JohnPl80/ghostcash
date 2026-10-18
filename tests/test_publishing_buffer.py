@@ -430,3 +430,51 @@ def test_get_publisher_passes_publishing_config_to_buffer_publisher(monkeypatch)
     assert isinstance(publisher, BufferPublisher)
     assert publisher._youtube_category_id == "26"
     assert publisher._disclose_ai_generated is False
+
+
+# -- looking up a post that was deleted in Buffer ---------------------------
+
+
+def _lookup_publisher(response_payload):
+    session = MagicMock()
+    response = MagicMock()
+    response.ok = True
+    response.json.return_value = response_payload
+    session.post.return_value = response
+    return BufferPublisher(api_key="k", session=session)
+
+
+def test_get_post_raises_post_not_found_when_buffer_says_not_found():
+    import pytest
+
+    from ghostcash.publishing.base import PostNotFoundError
+
+    publisher = _lookup_publisher({"errors": [{"message": "Post not found"}]})
+    with pytest.raises(PostNotFoundError):
+        publisher.get_post_status_and_metrics("abc")
+
+
+def test_get_post_raises_post_not_found_when_post_is_null():
+    import pytest
+
+    from ghostcash.publishing.base import PostNotFoundError
+
+    publisher = _lookup_publisher({"data": {"post": None}})
+    with pytest.raises(PostNotFoundError):
+        publisher.get_post_status_and_metrics("abc")
+
+
+def test_get_post_other_errors_stay_ordinary_publisher_errors():
+    import pytest
+
+    from ghostcash.publishing.base import PostNotFoundError, PublisherError
+
+    publisher = _lookup_publisher({"errors": [{"message": "Invalid API key"}]})
+    with pytest.raises(PublisherError) as excinfo:
+        publisher.get_post_status_and_metrics("abc")
+    assert not isinstance(excinfo.value, PostNotFoundError)
+
+
+def test_get_post_returns_the_post_when_it_exists():
+    publisher = _lookup_publisher({"data": {"post": {"id": "abc", "status": "draft"}}})
+    assert publisher.get_post_status_and_metrics("abc")["status"] == "draft"

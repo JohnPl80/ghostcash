@@ -24,7 +24,12 @@ import requests
 
 from ghostcash.models.content import Content
 from ghostcash.models.publishing import Platform
-from ghostcash.publishing.base import Publisher, PublisherError, ScheduleResult
+from ghostcash.publishing.base import (
+    PostNotFoundError,
+    Publisher,
+    PublisherError,
+    ScheduleResult,
+)
 
 API_BASE = "https://api.buffer.com"
 
@@ -57,6 +62,23 @@ UNSUPPORTED_FOR_POSTING: frozenset[str] = frozenset({"TIKTOK"})
 # 28 Science & Technology, 29 Nonprofits & Activism.
 DEFAULT_YOUTUBE_CATEGORY_ID = "27"  # Education - GhostCash posts how-to tips
 YOUTUBE_TITLE_MAX_CHARS = 100  # YouTube's own title limit
+
+
+# Phrases in a Buffer error that mean "that post is gone" (the owner deleted
+# the draft), as opposed to a real failure such as a bad key or no network.
+_MISSING_POST_HINTS = (
+    "not found",
+    "does not exist",
+    "doesn't exist",
+    "no such post",
+    "has been deleted",
+    "was deleted",
+)
+
+
+def _looks_like_missing_post(message: str) -> bool:
+    lowered = message.lower()
+    return any(hint in lowered for hint in _MISSING_POST_HINTS)
 
 
 class BufferPublisher(Publisher):
@@ -303,8 +325,20 @@ class BufferPublisher(Publisher):
                 }
             }
         """
-        data = self._call(query, {"id": post_id})
-        return dict(data["post"])
+        try:
+            data = self._call(query, {"id": post_id})
+        except PostNotFoundError:
+            raise
+        except PublisherError as exc:
+            if _looks_like_missing_post(str(exc)):
+                raise PostNotFoundError(
+                    f"Buffer has no post {post_id} (deleted in Buffer?): {exc}"
+                ) from exc
+            raise
+        post = data.get("post")
+        if not isinstance(post, dict) or not post:
+            raise PostNotFoundError(f"Buffer has no post {post_id} (deleted in Buffer?).")
+        return dict(post)
 
     # -- section 19/21: Publisher interface -----------------------------------
 
