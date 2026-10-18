@@ -125,6 +125,25 @@ class ContentConfig:
     # against. Keeps duplicate detection O(window), not O(all content).
     duplicate_check_window: int = 200
 
+    # What a video's call to action may ask for. The AI cannot know what
+    # the owner has actually set up, and left alone it invents offers such
+    # as "link in bio" or "comment CARD and I'll send the link" that do not
+    # exist (seen in the first live videos). The default asks only for
+    # things that need nothing built. Once a product and its link are real
+    # (Gumroad set up, link in the profile), rewrite this text to describe
+    # what is available and set `reject_unavailable_offers: false`.
+    cta_guidance: str = (
+        "Ask the viewer only to follow for more, save this video for later, or share it "
+        "with someone who needs it. Do not mention any link, 'link in bio', commenting a "
+        "keyword to receive something, a download, a template, a product, a course, a "
+        "newsletter or a discount - none of those exist yet."
+    )
+
+    # Quality control rejects a draft whose CTA, script or caption promises
+    # a link, download or message-me offer (see content/quality.py), as a
+    # safety net for when the AI ignores `cta_guidance`.
+    reject_unavailable_offers: bool = True
+
 
 @dataclass
 class ScoringWeights:

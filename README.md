@@ -158,6 +158,19 @@ saved:
 - **A soft 0-100 score** for everything that clears the gates, checked
   against `quality_score_threshold` (default 80).
 
+**Calls to action.** The AI cannot know what you have actually set up,
+and left alone it invents offers such as "link in bio" or "comment CARD
+and I'll send you the link". Until those really exist, two settings keep
+the videos honest: `content.cta_guidance` is the instruction given to the
+AI (by default: only ask the viewer to follow, save or share), and
+`content.reject_unavailable_offers: true` makes quality control reject any
+draft whose CTA, script or caption still promises a link in the bio or
+description, a comment-for-a-link, "DM me", or a download of "my"
+template/guide. Once a product and its link are real (Gumroad set up,
+link in your profile), rewrite `cta_guidance` to describe what is
+available and set `reject_unavailable_offers: false` in `config.yaml`
+(and the `config.example.yaml` the GitHub workflows use).
+
 Content that passes becomes `APPROVED` (ready for rendering once
 Phase 4 exists); everything else becomes `REJECTED`. A topic whose
 content generation fails outright (AI error) is left as `CANDIDATE`

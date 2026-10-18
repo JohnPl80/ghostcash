@@ -43,6 +43,39 @@ _UNSUPPORTED_CLAIM_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bexperts (?:say|agree|confirm)\b", re.IGNORECASE),
 )
 
+# Offers the channel cannot honour yet: no link in the profile, no
+# comment-to-receive automation, no downloadable product. Deliberately
+# narrow - plain "follow for more" must never match.
+_UNAVAILABLE_OFFER_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "link in bio",
+        re.compile(r"\blinks? (?:is |are )?(?:in|on) (?:my |the |our )?(?:bio|profile)\b", re.I),
+    ),
+    (
+        "link in the description or comments",
+        re.compile(
+            r"\blinks? (?:is |are )?"
+            r"(?:below|(?:in|on) (?:my |the |our )?(?:description|comments?))\b",
+            re.I,
+        ),
+    ),
+    (
+        "comment a keyword to get something",
+        re.compile(
+            r"\bcomment\b[^.!?\n]{0,60}\b(?:link|dm|message|send you|send it|send them)\b", re.I
+        ),
+    ),
+    ("message me", re.compile(r"\b(?:dm|message) (?:me|us)\b", re.I)),
+    (
+        "a download of their own",
+        re.compile(
+            r"\b(?:download|grab|get) (?:my|our) (?:free )?(?:\w+ ){0,2}"
+            r"(?:template|guide|pdf|checklist|cheat ?sheet|bundle|ebook|course)s?\b",
+            re.I,
+        ),
+    ),
+)
+
 _WORD_PATTERN = re.compile(r"[a-z0-9']+")
 
 
@@ -64,6 +97,14 @@ def _unique_word_ratio(text: str) -> float:
     if not words:
         return 1.0
     return len(set(words)) / len(words)
+
+
+def _find_unavailable_offer(content: Content) -> str | None:
+    text = " ".join(part for part in (content.cta, content.script, content.caption) if part)
+    for label, pattern in _UNAVAILABLE_OFFER_PATTERNS:
+        if pattern.search(text):
+            return label
+    return None
 
 
 def _hard_gate_failures(
@@ -100,6 +141,14 @@ def _hard_gate_failures(
         )
         if duplicate_id is not None:
             reasons.append(f"too similar to existing content (content id={duplicate_id})")
+
+    if config.content.reject_unavailable_offers:
+        offer = _find_unavailable_offer(content)
+        if offer:
+            reasons.append(
+                f"promises something that does not exist yet ({offer}) - set "
+                "content.reject_unavailable_offers to false once it does"
+            )
 
     if content.product_id is not None:
         row = conn.execute(

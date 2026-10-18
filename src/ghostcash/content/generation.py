@@ -127,8 +127,17 @@ def _performance_hint(hook_type: str | None, template: str | None) -> str:
     )
 
 
+def _cta_instruction(cta_guidance: str) -> str:
+    guidance = (cta_guidance or "").strip()
+    return f" Call to action: {guidance}" if guidance else ""
+
+
 def _build_prompt(
-    topic: Topic, max_words: int, hook_type_hint: str | None, template_hint: str | None
+    topic: Topic,
+    max_words: int,
+    hook_type_hint: str | None,
+    template_hint: str | None,
+    cta_guidance: str = "",
 ) -> str:
     audience = topic.target_audience or "a general audience"
     hook_hint = (
@@ -144,6 +153,7 @@ def _build_prompt(
         "wording, unsupported claims, fabricated statistics or quotations, and "
         f"copied or plagiarized content.{hook_hint}"
         f"{_performance_hint(hook_type_hint, template_hint)}"
+        f"{_cta_instruction(cta_guidance)}"
     )
 
 
@@ -155,7 +165,13 @@ def generate_draft_for_topic(
     to build a soft prompt hint - otherwise no DB access."""
     hook_type_hint = top_value(get_hook_type_weights(conn))
     template_hint = top_value(get_template_weights(conn))
-    prompt = _build_prompt(topic, config.content.max_script_words, hook_type_hint, template_hint)
+    prompt = _build_prompt(
+        topic,
+        config.content.max_script_words,
+        hook_type_hint,
+        template_hint,
+        config.content.cta_guidance,
+    )
     try:
         result = ai_provider.structured_generate(prompt, _content_schema())
     except AIProviderError as exc:
