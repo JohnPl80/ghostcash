@@ -14,6 +14,7 @@ rather than .srt.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -24,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ghostcash.config.schema import Config
+from ghostcash.content.script_cleanup import strip_repeated_hook_and_cta
 from ghostcash.models.content import Content
 from ghostcash.video.subtitles import write_ass_subtitles
 from ghostcash.video.templates import TEMPLATES_DIR, VideoTemplate, load_template
@@ -396,10 +398,20 @@ def render_content(
 ) -> RenderResult:
     if not (content.script or "").strip():
         raise RenderError("Content has no script to render.")
-    if not content.content_type:
+    content_type = content.content_type
+    if not content_type:
         raise RenderError("Content has no content_type; cannot choose a template.")
 
-    template = load_template(content.content_type, templates_dir)
+    # Content made before the cleanup existed (or by a different path) may
+    # still carry the hook and call to action inside its script; the video
+    # narrates them separately, so drop the copies here too. Work on a copy:
+    # the stored row is not changed.
+    cleaned_script = strip_repeated_hook_and_cta(content.script, content.hook, content.cta)
+    if cleaned_script != (content.script or "").strip():
+        content = copy.copy(content)
+        content.script = cleaned_script
+
+    template = load_template(content_type, templates_dir)
     tts_provider = tts_provider or get_tts_provider(config)
     video_cfg = config.video
 

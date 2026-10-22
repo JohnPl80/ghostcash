@@ -25,6 +25,7 @@ from ghostcash.ai.base import AIProvider, AIProviderError
 from ghostcash.ai.budget import UsageTracker
 from ghostcash.config.schema import Config
 from ghostcash.content.quality import evaluate_content
+from ghostcash.content.script_cleanup import strip_repeated_hook_and_cta
 from ghostcash.models.content import Content
 from ghostcash.models.topic import Topic
 from ghostcash.optimization.weights import get_hook_type_weights, get_template_weights, top_value
@@ -57,16 +58,33 @@ def _content_schema() -> dict[str, Any]:
     return {
         "type": "object",
         "properties": {
-            "hook": {"type": "string", "description": "Opening line for the first 2 seconds."},
+            "hook": {
+                "type": "string",
+                "description": (
+                    "Opening line for the first 2 seconds. It is spoken first, on its own, "
+                    "before the script."
+                ),
+            },
             "script": {
                 "type": "string",
-                "description": "Full voiceover script for a 15-35 second video. One idea only.",
+                "description": (
+                    "The spoken BODY of the video (the 2-3 points). One idea only. Do NOT "
+                    "repeat the hook at its start or the call to action at its end: the "
+                    "hook is narrated before the script and the call to action after it, "
+                    "so anything repeated would be said twice."
+                ),
             },
             "caption": {
                 "type": "string",
                 "description": "Social caption to accompany the post.",
             },
-            "cta": {"type": "string", "description": "A single, specific call to action."},
+            "cta": {
+                "type": "string",
+                "description": (
+                    "A single, specific call to action, spoken last, after the script. "
+                    "Do not also put it in the script."
+                ),
+            },
             "alternative_hook": {
                 "type": "string",
                 "description": "A different opening line, a genuinely different angle from `hook`.",
@@ -149,6 +167,9 @@ def _build_prompt(
         "The video is voiceover plus on-screen text only, no on-camera talent, "
         f"15-35 seconds long (roughly {max_words} words or fewer in the script). "
         "Focus on exactly ONE specific idea. "
+        "The hook, the script and the call to action are narrated one after another, "
+        "so the script must contain only the body: never repeat the hook at its start "
+        "or the call to action at its end. "
         "Avoid generic motivational filler, obviously AI-sounding phrasing, repetitive "
         "wording, unsupported claims, fabricated statistics or quotations, and "
         f"copied or plagiarized content.{hook_hint}"
@@ -310,7 +331,9 @@ def generate_scripts(
             topic_id=topic.id,
             title=topic.topic,
             hook=draft.hook,
-            script=draft.script,
+            # The AI often writes the hook and call to action into the script
+            # as well; the video narrates them separately, so drop the copies.
+            script=strip_repeated_hook_and_cta(draft.script, draft.hook, draft.cta),
             caption=draft.caption,
             cta=draft.cta,
             content_type=draft.content_type,

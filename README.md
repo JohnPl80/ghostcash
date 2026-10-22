@@ -147,6 +147,13 @@ best-scoring not-yet-used topics (`content.content_per_run`, default 5)
 and asks the AI for a full draft of each: hook, script, caption, CTA, a
 suggested visual sequence, an optional product idea, and one alternative
 hook (stored as a `content_variants` row, ready for A/B testing later).
+The video narrates three parts in order - hook, script, CTA - so the script
+must hold only the body. The AI is told so, and because it often writes the
+opening and closing lines into the script anyway,
+`content/script_cleanup.py` drops any copy of the hook at the script's start
+or of the CTA at its end (compared loosely: case, punctuation and small
+rewordings do not matter) before the draft is saved, and again when the video
+is rendered. Without that, both lines were spoken twice.
 
 Every draft then goes through quality control (section 14) before it's
 saved:
