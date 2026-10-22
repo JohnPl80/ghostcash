@@ -10,7 +10,8 @@ situation is actually still urgent - see publishing.yml.
 Machine-readable integration for GitHub Actions, both best-effort and
 backward compatible with running this locally:
   - If $GITHUB_OUTPUT is set, writes `below_emergency`, `below_alert`,
-    `ready_count`, `scheduled_count`, and `days_remaining` so a workflow
+    `below_target`, `ready_count`, `scheduled_count`, `approved_count`,
+    and `days_remaining` so a workflow
     step can branch on them (`if: steps.queue.outputs.below_emergency
     == 'true'`).
   - If $GITHUB_STEP_SUMMARY is set, appends a short Markdown status
@@ -46,6 +47,7 @@ def _write_github_output(status: QueueStatus) -> None:
     with Path(output_path).open("a", encoding="utf-8") as fh:
         fh.write(f"below_emergency={'true' if status.is_below_emergency_threshold else 'false'}\n")
         fh.write(f"below_alert={'true' if status.is_below_alert_threshold else 'false'}\n")
+        fh.write(f"below_target={'true' if status.is_below_target else 'false'}\n")
         fh.write(f"ready_count={status.ready_count}\n")
         fh.write(f"scheduled_count={status.scheduled_count}\n")
         fh.write(f"approved_count={status.approved_count}\n")

@@ -143,3 +143,15 @@ def test_queue_waiting_note_is_empty_when_nothing_waits(migrated_conn):
     status = get_queue_status(migrated_conn, Config())
     assert status.approved_count == 0
     assert status.waiting_note == ""
+
+
+def test_queue_below_target_drives_the_nightly_generation_gate(migrated_conn):
+    config = Config()
+    config.publishing.posts_per_day = 2
+    config.queue.target_days = 7  # 14 videos
+
+    _insert_content(migrated_conn, "READY", 13)
+    assert get_queue_status(migrated_conn, config).is_below_target is True
+
+    _insert_content(migrated_conn, "READY", 1)
+    assert get_queue_status(migrated_conn, config).is_below_target is False

@@ -39,6 +39,13 @@ class QueueStatus:
         return f", {self.approved_count} waiting to be rendered" if self.approved_count else ""
 
     @property
+    def is_below_target(self) -> bool:
+        """Whether the queue holds less than the target runway. The nightly
+        run only writes new videos while this is true, so unreviewed drafts
+        cannot pile up without limit."""
+        return self.days_remaining < self.target_days
+
+    @property
     def is_below_emergency_threshold(self) -> bool:
         return self.days_remaining < self.emergency_threshold_days
 

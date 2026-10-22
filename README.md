@@ -558,6 +558,18 @@ exits cleanly (`[skip]`, exit 0) until `optimization.interval_days`
 `nightly.yml` can call it every night with zero extra scheduling logic;
 most nights it's a fast no-op.
 
+**Posting pace and the draft pile.** Buffer drafts wait for *you*:
+GhostCash never publishes them by itself (`APPROVAL_REQUIRED`). Set
+`publishing.posts_per_day` to the number of videos you really plan to post
+each day (2 is a sensible start), because the queue's "days of runway" is
+the number of videos waiting (drafts, scheduled posts and approved scripts
+still waiting for their video) divided by that number. The nightly run only
+writes new videos while the queue holds fewer than `queue.target_days` (7)
+days of them, and prints `[skip]` lines otherwise, so reviewing and
+scheduling drafts in Buffer is what keeps new ones coming. Buffer's free
+plan keeps unlimited drafts but only 10 scheduled posts per channel at a
+time.
+
 ## 3. Installation
 
 Requirements: Python 3.12+, git, and **ffmpeg** (with libflite support -
@@ -734,7 +746,7 @@ doing real work:
 | Workflow | Schedule | Does |
 |---|---|---|
 | `healthcheck.yml` | hourly | `ghostcash health` against the persisted database - real AI/Buffer/Gumroad connectivity checks, not just "is the secret set" |
-| `nightly.yml` | once/day | health check -> backup -> queue check -> `ghostcash optimize` (weekly, self-gated) -> generate -> render -> publish -> detect product opportunities -> report -> final queue check (the alert) |
+| `nightly.yml` | once/day | health check -> backup -> queue check -> `ghostcash optimize` (weekly, self-gated) -> generate (only while the queue is below `queue.target_days`) -> render -> publish -> detect product opportunities -> report -> final queue check (the alert) |
 | `analytics.yml` | once/day, ~90 min after nightly | `ghostcash analytics` (Winner Score) + `ghostcash products sync-sales` |
 | `publishing.yml` | every 4 hours | queue check -> emergency generate+render if critically low -> publish -> queue check again |
 

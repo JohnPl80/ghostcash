@@ -64,3 +64,38 @@ def test_saved_narration_audio_lives_inside_a_cached_folder():
     audio_dir = Path(Config().video.audio_cache_dir)
     cached_folders = [Path(path) for path in EXPECTED_CACHE_PATHS]
     assert any(folder in audio_dir.parents for folder in cached_folders), audio_dir
+
+
+# -- the nightly run must not keep writing videos into a full queue ---------
+
+
+def _nightly_steps():
+    document = yaml.safe_load((WORKFLOWS_DIR / "nightly.yml").read_text(encoding="utf-8"))
+    return {
+        step["name"]: step
+        for job in document["jobs"].values()
+        for step in job["steps"]
+        if "name" in step
+    }
+
+
+def test_nightly_generation_runs_only_while_the_queue_is_below_target():
+    steps = _nightly_steps()
+    queue_step = next(
+        step for name, step in steps.items() if name.startswith("3. Check publishing queue")
+    )
+    assert queue_step["id"] == "queue_start"
+    assert queue_step["continue-on-error"] is True  # a low queue exits non-zero by design
+
+    generate = steps["6-9. Generate topics, generate content, quality control"]
+    assert "queue_start.outputs.below_target != 'false'" in generate["if"]  # unknown -> generate
+
+    skipped = next(step for name, step in steps.items() if name.startswith("6-9 skipped"))
+    assert "queue_start.outputs.below_target == 'false'" in skipped["if"]
+
+
+def test_nightly_rendering_is_never_gated_on_the_queue():
+    """Approved scripts waiting for their video count towards the queue, so
+    gating the render would leave a full queue of unrendered scripts."""
+    render = _nightly_steps()["10. Render approved content to video"]
+    assert "below_target" not in render.get("if", "")

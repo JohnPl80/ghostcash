@@ -1208,3 +1208,21 @@ def test_queue_counts_and_names_videos_waiting_to_be_rendered(
     assert exit_code == 0
     assert "5 waiting to be rendered" in out
     assert "approved_count=5" in output_file.read_text(encoding="utf-8")
+
+
+def test_queue_reports_whether_it_is_below_the_target_for_the_workflows(
+    isolated_project: Path, monkeypatch, tmp_path
+):
+    main(["init"])
+    db_path = isolated_project / "data" / "ghostcash.db"
+    output_file = tmp_path / "github_output.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+
+    main(["queue"])
+    assert "below_target=true" in output_file.read_text(encoding="utf-8")
+
+    for _ in range(35):  # 35 videos at 5 a day = the 7-day target
+        _insert_approved_content(db_path, status="READY")
+    output_file.write_text("", encoding="utf-8")
+    main(["queue"])
+    assert "below_target=false" in output_file.read_text(encoding="utf-8")

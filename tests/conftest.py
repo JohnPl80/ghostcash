@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -133,6 +134,12 @@ def isolated_project(tmp_path, monkeypatch):
     # the Gemini voice has its own mocked tests (test_video_gemini_tts.py).
     example_config = (REPO_ROOT / "config" / "config.example.yaml").read_text(encoding="utf-8")
     example_config = example_config.replace("  tts_provider: gemini", "  tts_provider: flite")
+    # The owner chooses their own posting pace in this file (`posts_per_day`),
+    # and several queue tests count days of runway at 5 videos a day. Pin it
+    # so the tests do not depend on that personal setting.
+    example_config = re.sub(
+        r"^  posts_per_day: \d+", "  posts_per_day: 5", example_config, flags=re.MULTILINE
+    )
     (project_dir / "config" / "config.example.yaml").write_text(example_config, encoding="utf-8")
     (project_dir / "config" / "content_categories.yaml").write_text(
         (REPO_ROOT / "config" / "content_categories.yaml").read_text(encoding="utf-8"),

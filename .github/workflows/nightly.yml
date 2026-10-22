@@ -151,12 +151,20 @@ jobs:
       - name: 2. Database backup
         run: ghostcash backup
 
-      # 3. Retrieve current queue (section 22). Informational here -
-      # nightly always runs a generation pass regardless of queue depth,
-      # so a low reading doesn't need to gate anything yet. The queue
-      # check that actually matters for alerting is the one at the very
-      # end of this job, after publishing has had a chance to help.
-      - name: 3. Check publishing queue (informational)
+      # 3. Retrieve current queue (section 22). Its reading decides whether
+      # tonight writes NEW videos: only while the queue holds less than the
+      # target runway (queue.target_days, default 7). Otherwise unreviewed
+      # Buffer drafts would pile up without limit (each night adds videos
+      # whether or not anyone has reviewed the earlier ones) and every
+      # needless video spends AI and speech quota. Rendering is NOT gated:
+      # approved scripts still waiting for their video must always be made.
+      # `continue-on-error`: a queue below the alert level exits non-zero by
+      # design, which must not stop the run; if the step fails before it can
+      # write its result, generation simply runs (see the `!= 'false'` test
+      # below). The queue check that matters for alerting is the one at the
+      # very end of this job, after publishing has had a chance to help.
+      - name: 3. Check publishing queue (decides tonight's generation)
+        id: queue_start
         continue-on-error: true
         run: ghostcash queue
 
@@ -176,10 +184,16 @@ jobs:
       # Skips cleanly (rather than failing the run) if AI_API_KEY hasn't
       # been added to the repo's secrets yet.
       - name: 6-9. Generate topics, generate content, quality control
-        if: steps.secrets_check.outputs.has_ai_key == 'true'
+        if: steps.secrets_check.outputs.has_ai_key == 'true' && steps.queue_start.outputs.below_target != 'false'
         env:
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
         run: ghostcash generate
+
+      - name: 6-9 skipped - the queue already holds enough videos
+        if: steps.secrets_check.outputs.has_ai_key == 'true' && steps.queue_start.outputs.below_target == 'false'
+        run: |
+          echo "[skip] The queue already holds at least the target number of days of videos, so no new videos are written tonight."
+          echo "[skip] Review and schedule the drafts waiting in Buffer; generation resumes when the queue runs below its target."
 
       - name: 10. Render approved content to video
         if: steps.secrets_check.outputs.has_ai_key == 'true'
