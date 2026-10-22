@@ -1,0 +1,121 @@
+name: Discard Drafts
+
+# Manual only - this workflow never runs on its own.
+#
+# Clears unwanted draft videos out of Buffer (see ghostcash drafts discard and
+# ghostcash/publishing/discard.py). Started by hand from the Actions tab:
+#
+#   1. Leave "confirm" empty and press Run. That only PREVIEWS what would be
+#      removed: nothing is deleted and Buffer is not contacted.
+#   2. Type DISCARD (capital letters) in "confirm" with "how_many" = 1 to
+#      delete a single video's drafts, then look in Buffer to check they are
+#      gone.
+#   3. Repeat with a bigger number, or the word "all", for the rest.
+#
+# Only videos that wait in Buffer purely as drafts are ever touched; anything
+# scheduled to go out or already published is skipped.
+#
+# It works on the same saved database as the other workflows (see nightly.yml's
+# header for the persistence design), so the removed videos are marked
+# REJECTED there and stop counting towards the queue.
+
+on:
+  workflow_dispatch:
+    inputs:
+      how_many:
+        description: "How many videos to cover, oldest first: a number, or the word all"
+        required: true
+        default: "1"
+        type: string
+      confirm:
+        description: "Empty = preview only. Type DISCARD to really delete the drafts from Buffer."
+        required: false
+        default: ""
+        type: string
+      created_before:
+        description: "Optional: only videos made before this date (YYYY-MM-DD)"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: ghostcash-db-state
+
+jobs:
+  discard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # DO NOT add or remove paths in this list (here or in the matching save
+      # step, in any workflow). GitHub ties each saved copy to the exact list
+      # of folders; change the list and every earlier save becomes invisible,
+      # so the next run silently starts from an empty database. Anything else
+      # that must persist (such as saved narration audio) lives INSIDE one of
+      # these folders - see video.audio_cache_dir.
+      - name: Restore persisted database + backups
+        id: restore_db
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            data/ghostcash.db
+            data/backups
+          key: ghostcash-data-${{ github.run_id }}
+          restore-keys: |
+            ghostcash-data-
+
+      - name: Warn if no saved database was found
+        if: steps.restore_db.outputs.cache-matched-key == ''
+        run: |
+          echo "::warning title=No saved database::No saved GhostCash database was found, so this run starts from an EMPTY one. That is normal only for the very first run ever."
+          echo "[WARN] NO SAVED DATABASE FOUND - this run starts from an empty database."
+          echo "[WARN] If this is not the first run ever, the saved copy is not being restored; see README, Troubleshooting."
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install GhostCash
+        run: pip install -e ".[dev]"
+
+      - name: Prepare local config (first run only)
+        run: cp -n config/config.example.yaml config/config.yaml || true
+
+      # The three inputs reach the script only through environment variables
+      # (never pasted into the script text), and each one is checked first.
+      - name: Discard drafts (preview unless confirmed)
+        env:
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          HOW_MANY: ${{ inputs.how_many }}
+          CONFIRM: ${{ inputs.confirm }}
+          CREATED_BEFORE: ${{ inputs.created_before }}
+        run: |
+          ghostcash init
+          args=()
+          if [ "$HOW_MANY" = "all" ]; then
+            args+=(--all)
+          elif [[ "$HOW_MANY" =~ ^[0-9]+$ ]]; then
+            args+=(--limit "$HOW_MANY")
+          else
+            echo "[error] how_many must be a number or the word all."
+            exit 1
+          fi
+          if [ -n "$CREATED_BEFORE" ]; then
+            args+=(--created-before "$CREATED_BEFORE")
+          fi
+          if [ "$CONFIRM" = "DISCARD" ]; then
+            args+=(--apply)
+          elif [ -n "$CONFIRM" ]; then
+            echo "[error] confirm must be empty (preview only) or exactly DISCARD."
+            exit 1
+          fi
+          ghostcash drafts discard "${args[@]}"
+
+      - name: Persist database + backups for the next run
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            data/ghostcash.db
+            data/backups
+          key: ghostcash-data-${{ github.run_id }}

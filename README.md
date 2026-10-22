@@ -577,6 +577,26 @@ scheduling drafts in Buffer is what keeps new ones coming. Buffer's free
 plan keeps unlimited drafts but only 10 scheduled posts per channel at a
 time.
 
+**Clearing out unwanted drafts.** Deleting a draft in Buffer rejects the
+video (the analytics job then marks it REJECTED so it stops counting towards
+the queue). For a big pile there is a command that does the same:
+
+```bash
+ghostcash drafts discard                  # preview the oldest video, deletes nothing
+ghostcash drafts discard --limit 1 --apply   # really delete that one video's drafts
+ghostcash drafts discard --all --apply       # every video that waits as drafts
+ghostcash drafts discard --all --created-before 2026-10-23 --apply
+```
+
+Without `--apply` it only lists what it would remove and does not contact
+Buffer. Only videos that sit in Buffer purely as drafts are touched - anything
+scheduled to go out or already published is skipped. A draft that is already
+gone counts as removed, so an interrupted run can simply be repeated, and three
+failures in a row stop the run. On GitHub the same thing is the manual
+**Discard Drafts** workflow (Actions tab -> Discard Drafts -> Run workflow):
+leave `confirm` empty to preview, type `DISCARD` to delete. The rendered video
+files uploaded to the `ghostcash-media` release are left in place.
+
 ## 3. Installation
 
 Requirements: Python 3.12+, git, and **ffmpeg** (with libflite support -

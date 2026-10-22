@@ -286,10 +286,23 @@ class BufferPublisher(Publisher):
                 }
             }
         """
-        data = self._call(query, {"input": {"id": post_id}})
+        try:
+            data = self._call(query, {"input": {"id": post_id}})
+        except PostNotFoundError:
+            raise
+        except PublisherError as exc:
+            # Buffer reports an unknown id as a top-level NOT_FOUND error.
+            if _looks_like_missing_post(str(exc)):
+                raise PostNotFoundError(
+                    f"Buffer has no post {post_id} (already deleted?): {exc}"
+                ) from exc
+            raise
         result = data["deletePost"]
         if result.get("__typename") != "DeletePostSuccess":
-            raise PublisherError(f"Buffer could not delete post {post_id}: {result.get('message')}")
+            message = f"Buffer could not delete post {post_id}: {result.get('message')}"
+            if _looks_like_missing_post(str(result.get("message", ""))):
+                raise PostNotFoundError(message)
+            raise PublisherError(message)
         return True
 
     # -- section 28-29: analytics / metrics --------------------------------

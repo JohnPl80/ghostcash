@@ -2,7 +2,8 @@
 
 Implemented: `init`, `health`, `generate` (topics + scripts - see
 ghostcash.content), `render` (see ghostcash.video), `publish` and
-`analytics` (see ghostcash.publishing / ghostcash.analytics), `products`
+`analytics` (see ghostcash.publishing / ghostcash.analytics), `drafts`
+(see ghostcash.publishing.discard), `products`
 (see ghostcash.products), `report`, `dashboard` (see ghostcash.dashboard),
 `queue` (see ghostcash.publishing.queue), `backup` (see ghostcash.backup),
 `optimize` (see ghostcash.optimization), and `run` (see
@@ -32,6 +33,7 @@ from ghostcash import __version__
 from ghostcash.cli.commands import analytics as analytics_cmd
 from ghostcash.cli.commands import backup as backup_cmd
 from ghostcash.cli.commands import dashboard as dashboard_cmd
+from ghostcash.cli.commands import drafts as drafts_cmd
 from ghostcash.cli.commands import generate as generate_cmd
 from ghostcash.cli.commands import health as health_cmd
 from ghostcash.cli.commands import init as init_cmd
@@ -115,6 +117,37 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser("analytics", help="Collect Buffer post metrics and evaluate Winner Score")
+
+    drafts_parser = subparsers.add_parser(
+        "drafts", help="Clear unwanted drafts out of Buffer (preview first, delete with --apply)"
+    )
+    drafts_sub = drafts_parser.add_subparsers(dest="drafts_action", required=True)
+    discard_parser = drafts_sub.add_parser(
+        "discard",
+        help="Delete draft videos from Buffer and mark them REJECTED (preview unless --apply)",
+    )
+    discard_amount = discard_parser.add_mutually_exclusive_group()
+    discard_amount.add_argument(
+        "--limit",
+        type=int,
+        default=1,
+        help="How many videos (oldest first) this run covers (default: 1)",
+    )
+    discard_amount.add_argument(
+        "--all", action="store_true", help="Cover every video that is waiting as drafts"
+    )
+    discard_parser.add_argument(
+        "--created-before",
+        dest="created_before",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Only videos made before this date",
+    )
+    discard_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Really delete the drafts. Without this the command only shows what it would do",
+    )
 
     subparsers.add_parser(
         "queue", help="Report publishing queue depth against the configured buffer targets"
@@ -255,6 +288,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_against_database(publish_cmd.run, args)
     if args.command == "analytics":
         return _run_against_database(analytics_cmd.run, args)
+    if args.command == "drafts":
+        return _run_against_database(drafts_cmd.run, args)
     if args.command == "queue":
         return _run_against_database(queue_cmd.run, args)
     if args.command == "backup":

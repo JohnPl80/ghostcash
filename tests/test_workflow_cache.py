@@ -37,7 +37,13 @@ def _cache_steps():
 
 def test_there_are_cache_steps_in_every_workflow():
     names = {name for name, *_ in _cache_steps()}
-    assert names == {"analytics.yml", "healthcheck.yml", "nightly.yml", "publishing.yml"}
+    assert names == {
+        "analytics.yml",
+        "discard-drafts.yml",
+        "healthcheck.yml",
+        "nightly.yml",
+        "publishing.yml",
+    }
 
 
 def test_every_cache_step_uses_exactly_the_original_folder_list():
@@ -52,7 +58,7 @@ def test_every_restore_is_followed_by_a_no_saved_database_warning():
     restores = [
         item for item in _cache_steps() if item[3]["uses"].startswith("actions/cache/restore")
     ]
-    assert len(restores) == 4
+    assert len(restores) == 5
     for name, index, steps, step, _ in restores:
         assert step.get("id") == "restore_db", name
         warning = steps[index + 1]
@@ -99,3 +105,54 @@ def test_nightly_rendering_is_never_gated_on_the_queue():
     gating the render would leave a full queue of unrendered scripts."""
     render = _nightly_steps()["10. Render approved content to video"]
     assert "below_target" not in render.get("if", "")
+
+
+# -- the manual "discard drafts" button must not delete by accident ---------
+
+
+def _discard_workflow():
+    return yaml.safe_load((WORKFLOWS_DIR / "discard-drafts.yml").read_text(encoding="utf-8"))
+
+
+def _discard_step():
+    document = _discard_workflow()
+    steps = [step for job in document["jobs"].values() for step in job["steps"]]
+    (step,) = [step for step in steps if "ghostcash drafts discard" in step.get("run", "")]
+    return step
+
+
+def _discard_triggers():
+    document = _discard_workflow()
+    return document.get("on", document.get(True))  # PyYAML reads a bare `on` as True
+
+
+def test_discard_workflow_only_runs_when_started_by_hand():
+    assert set(_discard_triggers()) == {"workflow_dispatch"}
+
+
+def test_discard_workflow_shares_the_database_lock_with_the_other_workflows():
+    assert _discard_workflow()["concurrency"]["group"] == "ghostcash-db-state"
+
+
+def test_discard_workflow_previews_unless_the_word_discard_is_typed():
+    script = _discard_step()["run"]
+    # --apply is added in exactly one place, and only for the exact word.
+    assert script.count("--apply") == 1
+    apply_line = script.index("--apply")
+    assert script.rindex('[ "$CONFIRM" = "DISCARD" ]', 0, apply_line) != -1
+    # Anything else typed in "confirm" stops the run instead of being ignored.
+    assert "confirm must be empty" in script
+
+
+def test_discard_workflow_takes_its_inputs_through_the_environment_only():
+    step = _discard_step()
+    assert "${{" not in step["run"], "inputs pasted into the script text could inject commands"
+    assert step["env"]["CONFIRM"] == "${{ inputs.confirm }}"
+    assert step["env"]["HOW_MANY"] == "${{ inputs.how_many }}"
+    assert step["env"]["BUFFER_API_KEY"] == "${{ secrets.BUFFER_API_KEY }}"
+
+
+def test_discard_workflow_defaults_to_one_video_and_no_confirmation():
+    inputs = _discard_triggers()["workflow_dispatch"]["inputs"]
+    assert inputs["how_many"]["default"] == "1"
+    assert inputs["confirm"]["default"] == ""

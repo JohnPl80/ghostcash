@@ -7,7 +7,7 @@ import pytest
 from ghostcash.config.schema import Config
 from ghostcash.models.content import Content
 from ghostcash.models.publishing import Platform
-from ghostcash.publishing.base import PublisherError
+from ghostcash.publishing.base import PostNotFoundError, PublisherError
 from ghostcash.publishing.buffer import BufferPublisher
 from ghostcash.publishing.factory import get_publisher
 
@@ -205,6 +205,46 @@ def test_delete_post_raises_on_error():
     publisher = BufferPublisher(api_key="secret", session=session)
     with pytest.raises(PublisherError, match="Not found"):
         publisher.delete_post("post1")
+
+
+def test_delete_post_reports_an_unknown_id_as_post_not_found():
+    # Buffer answers an unknown id with a top-level NOT_FOUND error.
+    session = MagicMock()
+    session.post.return_value = _mock_response(
+        json_data={
+            "errors": [{"message": "Post not found", "extensions": {"code": "NOT_FOUND"}}],
+            "data": None,
+        }
+    )
+    publisher = BufferPublisher(api_key="secret", session=session)
+    with pytest.raises(PostNotFoundError):
+        publisher.delete_post("gone")
+
+
+def test_delete_post_reports_a_not_found_mutation_error_as_post_not_found():
+    session = MagicMock()
+    session.post.return_value = _mock_response(
+        json_data={
+            "data": {"deletePost": {"__typename": "VoidMutationError", "message": "Not found"}}
+        }
+    )
+    publisher = BufferPublisher(api_key="secret", session=session)
+    with pytest.raises(PostNotFoundError):
+        publisher.delete_post("gone")
+
+
+def test_delete_post_keeps_other_failures_as_plain_publisher_errors():
+    session = MagicMock()
+    session.post.return_value = _mock_response(
+        json_data={
+            "errors": [{"message": "Not authorized", "extensions": {"code": "UNAUTHORIZED"}}],
+            "data": None,
+        }
+    )
+    publisher = BufferPublisher(api_key="secret", session=session)
+    with pytest.raises(PublisherError) as excinfo:
+        publisher.delete_post("post1")
+    assert not isinstance(excinfo.value, PostNotFoundError)
 
 
 def test_get_scheduled_posts_filters_by_buffer_status():
