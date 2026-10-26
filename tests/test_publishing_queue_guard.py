@@ -396,3 +396,61 @@ def test_publish_holds_back_quietly_when_a_queue_is_full(project, monkeypatch, c
     assert "[hold] Buffer's queue is full on YOUTUBE" in out
     assert "No READY content is waiting" not in out
     publisher.schedule.assert_not_called()
+
+
+# -- Buffer pages the posts query ---------------------------------------------
+
+
+def _paged_response(nodes, has_next=False, end_cursor=None):
+    return _mock_response(
+        json_data={
+            "data": {
+                "posts": {
+                    "edges": [{"node": n} for n in nodes],
+                    "pageInfo": {"hasNextPage": has_next, "endCursor": end_cursor},
+                }
+            }
+        }
+    )
+
+
+def test_posts_are_requested_100_at_a_time_with_page_info():
+    session = MagicMock()
+    session.post.return_value = _paged_response([{"id": "p1", "channelId": "ch1"}])
+    publisher = BufferPublisher(api_key="secret", session=session)
+
+    publisher.get_scheduled_posts("org1", ["ch1"])
+
+    query = session.post.call_args.kwargs["json"]["query"]
+    assert "first: 100" in query
+    assert "pageInfo" in query and "hasNextPage" in query and "endCursor" in query
+    assert "after:" not in query  # the first page has no cursor
+
+
+def test_every_page_is_read_so_a_full_queue_is_not_undercounted():
+    session = MagicMock()
+    first_page = [{"id": f"a{n}", "channelId": "ch1"} for n in range(5)]
+    second_page = [{"id": f"b{n}", "channelId": "ch1"} for n in range(5)]
+    session.post.side_effect = [
+        _paged_response(first_page, has_next=True, end_cursor="cursor-1"),
+        _paged_response(second_page, has_next=False, end_cursor="cursor-2"),
+    ]
+    publisher = BufferPublisher(api_key="secret", session=session)
+
+    posts = publisher.get_scheduled_posts("org1", ["ch1"])
+
+    assert len(posts) == 10
+    assert session.post.call_count == 2
+    second_query = session.post.call_args_list[1].kwargs["json"]["query"]
+    assert 'after: "cursor-1"' in second_query
+
+
+def test_paging_stops_when_buffer_says_there_is_no_next_page():
+    session = MagicMock()
+    session.post.return_value = _paged_response(
+        [{"id": "p1", "channelId": "ch1"}], has_next=True, end_cursor=None
+    )
+    publisher = BufferPublisher(api_key="secret", session=session)
+
+    assert len(publisher.get_scheduled_posts("org1")) == 1
+    assert session.post.call_count == 1  # no cursor to continue with

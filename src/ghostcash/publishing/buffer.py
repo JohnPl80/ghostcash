@@ -18,6 +18,7 @@ channel fails").
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import requests
@@ -80,6 +81,11 @@ def _looks_like_missing_post(message: str) -> bool:
     lowered = message.lower()
     return any(hint in lowered for hint in _MISSING_POST_HINTS)
 
+
+# Buffer's guides: "up to 100 items per request"; more pages are followed
+# with pageInfo.endCursor. 5 pages of 100 is far beyond any real queue.
+POSTS_PAGE_SIZE = 100
+MAX_POST_PAGES = 5
 
 # What Buffer calls a post that waits in the queue for its time slot. Its
 # guide names the state "Scheduled"; older material says "buffer". Which of
@@ -292,29 +298,51 @@ class BufferPublisher(Publisher):
     def _get_posts_by_status(
         self, organization_id: str, status: str, channel_ids: list[str] | None
     ) -> list[dict[str, Any]]:
-        query = """
-            query GetPosts(
-                $organizationId: OrganizationId!
-                $status: [PostStatus!]
-                $channelIds: [ChannelId!]
-            ) {
-                posts(input: {
-                    organizationId: $organizationId
-                    filter: { status: $status, channelIds: $channelIds }
-                }) {
-                    edges {
-                        node { id text status dueAt sentAt channelId }
-                    }
-                }
-            }
-        """
+        """Every post with this status, following Buffer's pages.
+
+        Without an explicit page size Buffer returned only a handful of posts
+        (seen live 2026-10-26: exactly 5 per channel while the calendar held
+        more), which made a nearly full queue look half empty. Buffer's
+        guides show `first: 100` (its documented maximum) and
+        `pageInfo { hasNextPage endCursor }`, so both are used here."""
         variables = {
             "organizationId": organization_id,
             "status": [status],
             "channelIds": channel_ids,
         }
-        data = self._call(query, variables)
-        return [edge["node"] for edge in data["posts"]["edges"]]
+        posts: list[dict[str, Any]] = []
+        cursor: str | None = None
+        for _ in range(MAX_POST_PAGES):
+            after = f"after: {json.dumps(cursor)}" if cursor else ""
+            query = f"""
+                query GetPosts(
+                    $organizationId: OrganizationId!
+                    $status: [PostStatus!]
+                    $channelIds: [ChannelId!]
+                ) {{
+                    posts(
+                        first: {POSTS_PAGE_SIZE}
+                        {after}
+                        input: {{
+                            organizationId: $organizationId
+                            filter: {{ status: $status, channelIds: $channelIds }}
+                        }}
+                    ) {{
+                        edges {{
+                            node {{ id text status dueAt sentAt channelId }}
+                        }}
+                        pageInfo {{ hasNextPage endCursor }}
+                    }}
+                }}
+            """
+            data = self._call(query, variables)
+            page = data["posts"]
+            posts.extend(edge["node"] for edge in page["edges"])
+            info = page.get("pageInfo") or {}
+            cursor = info.get("endCursor")
+            if not info.get("hasNextPage") or not cursor:
+                break
+        return posts
 
     # -- section 20: delete_post ---------------------------------------------
 
