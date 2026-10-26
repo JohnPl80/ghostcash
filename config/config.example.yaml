@@ -110,7 +110,7 @@ monthly_budget:
 # Valid values: AUTONOMOUS, APPROVAL_REQUIRED
 human_approval_mode:
   content: AUTONOMOUS
-  publishing: APPROVAL_REQUIRED
+  publishing: AUTONOMOUS
   products: APPROVAL_REQUIRED
 
 # Publishing queue buffer targets, in days (section 22).
