@@ -87,6 +87,11 @@ class PublishingConfig:
     # "how much READY/SCHEDULED content is queued" into a days-of-runway
     # estimate for the section 22 queue thresholds.
     posts_per_day: int = 5
+    # Only used when human_approval_mode.publishing is AUTONOMOUS (videos go
+    # straight into Buffer's queue). Buffer's free plan holds at most 10
+    # scheduled posts per channel, so `publish` sends nothing while any
+    # channel already has this many waiting. 0 turns the check off.
+    max_scheduled_per_channel: int = 10
     # Buffer rejects a YouTube post without a category. Default 27 =
     # Education; other valid ids are listed in publishing/buffer.py
     # (e.g. 26 Howto & Style, 28 Science & Technology).

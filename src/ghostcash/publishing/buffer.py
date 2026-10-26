@@ -81,6 +81,23 @@ def _looks_like_missing_post(message: str) -> bool:
     return any(hint in lowered for hint in _MISSING_POST_HINTS)
 
 
+# What Buffer calls a post that waits in the queue for its time slot. Its
+# guide names the state "Scheduled"; older material says "buffer". Which of
+# the two the `status` filter accepts has not been confirmed against the
+# live API, so both are tried (in this order) and the working one is
+# remembered. `ghostcash buffer-queue` shows which one worked.
+SCHEDULED_STATUS_CANDIDATES: tuple[str, ...] = ("scheduled", "buffer")
+
+# Phrases in a GraphQL validation error that mean "that status value is not
+# one this API knows", as opposed to a real failure such as a bad key.
+_BAD_STATUS_HINTS = ("poststatus", "enum", "invalid value", "$status")
+
+
+def _looks_like_bad_status_value(message: str) -> bool:
+    lowered = message.lower()
+    return any(hint in lowered for hint in _BAD_STATUS_HINTS)
+
+
 class BufferPublisher(Publisher):
     def __init__(
         self,
@@ -100,6 +117,8 @@ class BufferPublisher(Publisher):
         self._timeout_seconds = timeout_seconds
         self._youtube_category_id = youtube_category_id
         self._disclose_ai_generated = disclose_ai_generated
+        # Set once a "scheduled" status value has been accepted by Buffer.
+        self.scheduled_status: str | None = None
 
     def _call(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
@@ -240,7 +259,30 @@ class BufferPublisher(Publisher):
     def get_scheduled_posts(
         self, organization_id: str, channel_ids: list[str] | None = None
     ) -> list[dict[str, Any]]:
-        return self._get_posts_by_status(organization_id, "buffer", channel_ids)
+        """Posts waiting in the queue for their time slot.
+
+        Tries each name in SCHEDULED_STATUS_CANDIDATES until Buffer accepts
+        one (only a complaint about the status value itself moves on to the
+        next name - any other error is raised at once), then remembers it in
+        `scheduled_status`."""
+        candidates = (
+            (self.scheduled_status,) if self.scheduled_status else SCHEDULED_STATUS_CANDIDATES
+        )
+        last_error: PublisherError | None = None
+        for status in candidates:
+            try:
+                posts = self._get_posts_by_status(organization_id, status, channel_ids)
+            except PublisherError as exc:
+                if _looks_like_bad_status_value(str(exc)):
+                    last_error = exc
+                    continue
+                raise
+            self.scheduled_status = status
+            return posts
+        raise PublisherError(
+            "Buffer accepted none of the known names for a queued post "
+            f"({', '.join(candidates)}): {last_error}"
+        )
 
     def get_sent_posts(
         self, organization_id: str, channel_ids: list[str] | None = None

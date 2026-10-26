@@ -247,7 +247,7 @@ def test_delete_post_keeps_other_failures_as_plain_publisher_errors():
     assert not isinstance(excinfo.value, PostNotFoundError)
 
 
-def test_get_scheduled_posts_filters_by_buffer_status():
+def test_get_scheduled_posts_filters_by_scheduled_status():
     session = MagicMock()
     session.post.return_value = _mock_response(
         json_data={"data": {"posts": {"edges": [{"node": {"id": "p1", "status": "buffer"}}]}}}
@@ -258,7 +258,7 @@ def test_get_scheduled_posts_filters_by_buffer_status():
 
     assert posts == [{"id": "p1", "status": "buffer"}]
     body = session.post.call_args.kwargs["json"]
-    assert body["variables"]["status"] == ["buffer"]
+    assert body["variables"]["status"] == ["scheduled"]
 
 
 def test_get_sent_posts_filters_by_sent_status():

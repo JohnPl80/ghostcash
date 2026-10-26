@@ -74,6 +74,7 @@ from ghostcash.database.jobs import fail_job, start_job, succeed_job
 from ghostcash.products.opportunities import OpportunityDetectionError, detect_opportunities
 from ghostcash.publishing.base import PublisherError
 from ghostcash.publishing.buffer import BufferPublisher
+from ghostcash.publishing.buffer_queue import make_queue_counter
 from ghostcash.publishing.channels import resolve_organization_id, sync_channels
 from ghostcash.publishing.factory import get_media_host, get_publisher
 from ghostcash.publishing.media_host import MediaHostError
@@ -250,14 +251,23 @@ def _publish_for_real(
             return 0, "[info] publishing skipped - configured publisher isn't Buffer-based."
         organization_id = resolve_organization_id(publisher, config)
         sync_channels(publisher, conn, organization_id)
-        outcomes = publish_batch(publisher, media_host, conn, config, count=content_count)
+        notes: list[str] = []
+        outcomes = publish_batch(
+            publisher,
+            media_host,
+            conn,
+            config,
+            count=content_count,
+            queue_counter=make_queue_counter(publisher, organization_id),
+            notes=notes,
+        )
     except PublishingSetupError as exc:
         return 0, f"[info] {exc}"
     except (PublisherError, MediaHostError) as exc:
         return 0, f"[warn] publishing failed: {exc}"
 
     succeeded = [outcome for outcome in outcomes if outcome.result is not None]
-    return len(succeeded), None
+    return len(succeeded), ("\n".join(notes) if notes else None)
 
 
 def _collect_analytics_for_real(conn: sqlite3.Connection, config: Config) -> None:

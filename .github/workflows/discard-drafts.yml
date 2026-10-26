@@ -12,8 +12,10 @@ name: Discard Drafts
 #      gone.
 #   3. Repeat with a bigger number, or the word "all", for the rest.
 #
-# Only videos that wait in Buffer purely as drafts are ever touched; anything
-# scheduled to go out or already published is skipped.
+# Only videos that GhostCash's database records as drafts are touched. A video
+# GhostCash queued itself (AUTONOMOUS) or that has been sent is skipped, but one
+# you queued BY HAND in Buffer still reads as a draft there - do not run this
+# with "all" while hand-queued videos are waiting.
 #
 # It works on the same saved database as the other workflows (see nightly.yml's
 # header for the persistence design), so the removed videos are marked

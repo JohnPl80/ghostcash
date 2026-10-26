@@ -32,6 +32,7 @@ from collections.abc import Callable
 from ghostcash import __version__
 from ghostcash.cli.commands import analytics as analytics_cmd
 from ghostcash.cli.commands import backup as backup_cmd
+from ghostcash.cli.commands import buffer_queue as buffer_queue_cmd
 from ghostcash.cli.commands import dashboard as dashboard_cmd
 from ghostcash.cli.commands import drafts as drafts_cmd
 from ghostcash.cli.commands import generate as generate_cmd
@@ -117,6 +118,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser("analytics", help="Collect Buffer post metrics and evaluate Winner Score")
+
+    subparsers.add_parser(
+        "buffer-queue", help="Show how many posts wait in Buffer's queue on each channel"
+    )
 
     drafts_parser = subparsers.add_parser(
         "drafts", help="Clear unwanted drafts out of Buffer (preview first, delete with --apply)"
@@ -288,6 +293,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_against_database(publish_cmd.run, args)
     if args.command == "analytics":
         return _run_against_database(analytics_cmd.run, args)
+    if args.command == "buffer-queue":
+        return buffer_queue_cmd.run(args)
     if args.command == "drafts":
         return _run_against_database(drafts_cmd.run, args)
     if args.command == "queue":

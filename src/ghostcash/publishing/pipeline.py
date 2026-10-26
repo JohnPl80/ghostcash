@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from ghostcash.config.schema import Config
@@ -31,6 +32,23 @@ class PublishOutcome:
     platform: Platform
     result: ScheduleResult | None
     error: str | None
+
+
+# Given Buffer channel ids, returns how many posts wait in each channel's
+# queue (every id present in the result). See buffer_queue.py.
+QueueCounter = Callable[[list[str]], dict[str, int]]
+
+# Notes added by publish_batch: a line starting with HOLD_PREFIX means videos
+# were held back on purpose (a channel's queue is full - normal, not a
+# failure); one starting with QUEUE_UNREADABLE_PREFIX means Buffer's queue
+# could not be read, which callers should treat as a failure.
+HOLD_PREFIX = "[hold]"
+QUEUE_UNREADABLE_PREFIX = "[error]"
+
+
+def _note(notes: list[str] | None, message: str) -> None:
+    if notes is not None:
+        notes.append(message)
 
 
 def media_asset_name(content_id: int, video_path: str) -> str:
@@ -113,7 +131,18 @@ def publish_batch(
     conn: sqlite3.Connection,
     config: Config,
     count: int | None = None,
+    *,
+    queue_counter: QueueCounter | None = None,
+    notes: list[str] | None = None,
 ) -> list[PublishOutcome]:
+    """Publish READY content.
+
+    In AUTONOMOUS mode (posts go straight into Buffer's queue) and when a
+    `queue_counter` is given, a video is only sent while EVERY active
+    channel has room under `publishing.max_scheduled_per_channel`; otherwise
+    the run holds back and says why in `notes` (the caller prints them).
+    If Buffer's queue cannot be read, nothing is sent (fail closed): a
+    wrong guess would leave a video on one channel and not the other."""
     platforms = load_active_platforms(conn)
     if not platforms:
         raise PublishingSetupError(
@@ -133,9 +162,46 @@ def publish_batch(
     save_to_draft = config.human_approval_mode.publishing.strip().upper() != "AUTONOMOUS"
     outcomes: list[PublishOutcome] = []
 
+    room: dict[str, int] | None = None  # Buffer channel id -> free places
+    cap = config.publishing.max_scheduled_per_channel
+    if not save_to_draft and cap > 0 and queue_counter is not None:
+        channel_ids = [str(platform.buffer_channel_id) for platform in platforms]
+        try:
+            waiting = queue_counter(channel_ids)
+        except PublisherError as exc:
+            _note(
+                notes,
+                f"{QUEUE_UNREADABLE_PREFIX} Could not read Buffer's queue, so nothing was sent "
+                f"this run: {exc}",
+            )
+            return outcomes
+        room = {cid: cap - waiting.get(cid, 0) for cid in channel_ids}
+        _note(
+            notes,
+            "Buffer queue (waiting / limit): "
+            + ", ".join(
+                f"{platform.name} {waiting.get(str(platform.buffer_channel_id), 0)}/{cap}"
+                for platform in platforms
+            ),
+        )
+
     for content in items:
         assert content.id is not None
         assert content.rendered_video_path is not None
+
+        if room is not None:
+            full = [
+                platform.name
+                for platform in platforms
+                if room[str(platform.buffer_channel_id)] <= 0
+            ]
+            if full:
+                _note(
+                    notes,
+                    f"{HOLD_PREFIX} Buffer's queue is full on {', '.join(full)} "
+                    f"(limit {cap}); the remaining video(s) wait for the next run.",
+                )
+                break
 
         try:
             video_url = media_host.upload(
@@ -188,6 +254,8 @@ def publish_batch(
             )
             outcomes.append(PublishOutcome(content, platform, result, None))
             any_success = True
+            if room is not None:
+                room[str(platform.buffer_channel_id)] -= 1
 
         if any_success:
             conn.execute("UPDATE content SET status = 'SCHEDULED' WHERE id = ?", (content.id,))

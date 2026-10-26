@@ -17,10 +17,15 @@ from ghostcash.database.connection import get_connection
 from ghostcash.database.jobs import fail_job, start_job, succeed_job
 from ghostcash.publishing.base import PublisherError
 from ghostcash.publishing.buffer import BufferPublisher
+from ghostcash.publishing.buffer_queue import make_queue_counter
 from ghostcash.publishing.channels import resolve_organization_id, sync_channels
 from ghostcash.publishing.factory import get_media_host, get_publisher
 from ghostcash.publishing.media_host import MediaHostError
-from ghostcash.publishing.pipeline import PublishingSetupError, publish_batch
+from ghostcash.publishing.pipeline import (
+    QUEUE_UNREADABLE_PREFIX,
+    PublishingSetupError,
+    publish_batch,
+)
 from ghostcash.publishing.queue import get_queue_status
 
 
@@ -65,8 +70,17 @@ def run(args: argparse.Namespace) -> int:
             f"{', '.join(sorted(set(sync_result.skipped_services)))}"
         )
 
+    notes: list[str] = []
     try:
-        outcomes = publish_batch(publisher, media_host, conn, config, count=args.count)
+        outcomes = publish_batch(
+            publisher,
+            media_host,
+            conn,
+            config,
+            count=args.count,
+            queue_counter=make_queue_counter(publisher, organization_id),
+            notes=notes,
+        )
     except PublishingSetupError as exc:
         succeed_job(conn, job_id)  # not a failure - just nothing to do yet
         conn.close()
@@ -79,8 +93,11 @@ def run(args: argparse.Namespace) -> int:
 
     succeeded = [o for o in outcomes if o.result is not None]
     failed = [o for o in outcomes if o.result is None]
+    queue_unreadable = any(note.startswith(QUEUE_UNREADABLE_PREFIX) for note in notes)
 
-    if succeeded or not failed:
+    if queue_unreadable:
+        fail_job(conn, job_id, "; ".join(notes))
+    elif succeeded or not failed:
         succeed_job(conn, job_id)
     else:
         fail_job(conn, job_id, f"All {len(failed)} publish attempt(s) failed.")
@@ -88,8 +105,12 @@ def run(args: argparse.Namespace) -> int:
     queue_status = get_queue_status(conn, config)
     conn.close()
 
+    for note in notes:
+        print(note)
+
     if not outcomes:
-        print("No READY content is waiting to be published.")
+        if not notes:
+            print("No READY content is waiting to be published.")
     else:
         print(f"\nPublished {len(succeeded)} of {len(outcomes)} (content, platform) attempt(s).")
         for outcome in outcomes:
@@ -119,4 +140,6 @@ def run(args: argparse.Namespace) -> int:
             "threshold - consider running `ghostcash generate` and `ghostcash render`."
         )
 
+    if queue_unreadable:
+        return 1
     return 0 if succeeded or not failed else 1

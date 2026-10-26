@@ -577,6 +577,26 @@ scheduling drafts in Buffer is what keeps new ones coming. Buffer's free
 plan keeps unlimited drafts but only 10 scheduled posts per channel at a
 time.
 
+**Queueing videos automatically.** With `human_approval_mode.publishing:
+AUTONOMOUS` (in `config.yaml`) `ghostcash publish` puts each video straight
+into Buffer's queue, at the next free slot of the channel's posting schedule,
+instead of leaving a draft. You lose the review step, but Buffer's calendar
+still shows every queued post until it goes out, and deleting one there
+rejects it. Buffer's free plan holds at most 10 scheduled posts per channel
+(`publishing.max_scheduled_per_channel`, default 10; 0 turns the check off),
+so before sending anything GhostCash asks Buffer how many posts wait on each
+channel and sends a video only while every channel has room; it prints
+`[hold]` when it waits, and fails the run with `[error]` (sending nothing) if
+Buffer's queue cannot be read. Check what Buffer reports with:
+
+```bash
+ghostcash buffer-queue
+```
+
+It lists, per channel, how many posts are waiting and when the first and last
+go out. Compare the numbers with Buffer's calendar before relying on them.
+Drafts that are already in Buffer when you switch stay drafts.
+
 **Clearing out unwanted drafts.** Deleting a draft in Buffer rejects the
 video (the analytics job then marks it REJECTED so it stops counting towards
 the queue). For a big pile there is a command that does the same:
@@ -589,8 +609,11 @@ ghostcash drafts discard --all --created-before 2026-10-23 --apply
 ```
 
 Without `--apply` it only lists what it would remove and does not contact
-Buffer. Only videos that sit in Buffer purely as drafts are touched - anything
-scheduled to go out or already published is skipped. A draft that is already
+Buffer. Only videos that GhostCash's own database records as drafts are
+touched; a video it queued itself (`AUTONOMOUS`) or that has been sent is
+skipped. **Caution:** a video you queued *by hand* in Buffer (Next Available)
+still reads as a draft in the database until it has been sent, so do not run
+this with `--all` while videos you queued by hand are waiting. A draft that is already
 gone counts as removed, so an interrupted run can simply be repeated, and three
 failures in a row stop the run. On GitHub the same thing is the manual
 **Discard Drafts** workflow (Actions tab -> Discard Drafts -> Run workflow):

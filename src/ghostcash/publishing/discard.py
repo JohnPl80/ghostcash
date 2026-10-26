@@ -6,8 +6,10 @@ retired to REJECTED). Doing that by hand for a pile of 50 videos on two
 channels means about a hundred clicks, so this does the same thing from the
 command line - carefully:
 
-  - Only content that is waiting as DRAFTS is touched. Anything with a post
-    that is scheduled to go out, or already went out, is never selected.
+  - Only content that the DATABASE records as waiting as drafts is touched.
+    Anything with a post recorded as scheduled or sent is never selected.
+    Caution: a post queued by hand in Buffer still reads as a draft in the
+    database until it has been sent, so this is not safe for such videos.
   - Nothing is deleted unless the caller asks for it explicitly; the default
     is a preview that lists what would be removed.
   - The caller picks how many videos to remove in one run (default 1), so
