@@ -3,6 +3,7 @@ overfill Buffer's per-channel queue - see publishing/buffer_queue.py."""
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -302,6 +303,25 @@ def _channels():
     ]
 
 
+def _set_publishing_mode(project: Path, mode: str) -> None:
+    """Set human_approval_mode.publishing in the project's own config.yaml.
+
+    Tests must not rely on what the shipped example file happens to say: it
+    was switched to AUTONOMOUS on purpose, and a test that assumed the old
+    value stopped the nightly run (it runs the test suite first).
+    """
+    config_path = project / "config" / "config.yaml"
+    text, changed = re.subn(
+        r"^  publishing: \w+$",
+        f"  publishing: {mode}",
+        config_path.read_text(encoding="utf-8"),
+        count=1,
+        flags=re.MULTILINE,
+    )
+    assert changed == 1
+    config_path.write_text(text, encoding="utf-8")
+
+
 def _fake_buffer(monkeypatch, module) -> MagicMock:
     publisher = MagicMock(spec=BufferPublisher)
     publisher.get_organizations.return_value = [{"id": "org1"}]
@@ -319,6 +339,7 @@ def project(isolated_project: Path, monkeypatch):
 
 
 def test_buffer_queue_command_prints_counts_and_times(project, monkeypatch, capsys):
+    _set_publishing_mode(project, "APPROVAL_REQUIRED")
     publisher = _fake_buffer(monkeypatch, buffer_queue_cmd)
     publisher.get_scheduled_posts.return_value = [
         {"id": "a", "channelId": "ch1", "dueAt": "2026-10-27T11:00:00.000Z"},
@@ -335,9 +356,21 @@ def test_buffer_queue_command_prints_counts_and_times(project, monkeypatch, caps
     assert "first goes out: 2026-10-27 11:00 UTC" in out
     assert "last goes out:  2026-10-28 16:00 UTC" in out
     assert "'scheduled'" in out
-    assert "DRAFTS" in out  # the shipped default is APPROVAL_REQUIRED
+    assert "DRAFTS" in out
     asked = publisher.get_scheduled_posts.call_args.args
     assert asked == ("org1", ["ch1", "ch2"])
+
+
+def test_buffer_queue_command_says_videos_are_queued_when_autonomous(project, monkeypatch, capsys):
+    _set_publishing_mode(project, "AUTONOMOUS")
+    publisher = _fake_buffer(monkeypatch, buffer_queue_cmd)
+    publisher.get_scheduled_posts.return_value = []
+
+    assert main(["buffer-queue"]) == 0
+
+    out = capsys.readouterr().out
+    assert "straight into the queue" in out
+    assert "DRAFTS" not in out
 
 
 def test_buffer_queue_command_reports_a_buffer_problem(project, monkeypatch, capsys):
@@ -357,13 +390,7 @@ def test_buffer_queue_command_needs_the_key(project, monkeypatch, capsys):
 
 
 def _autonomous_project(project: Path) -> None:
-    config_path = project / "config" / "config.yaml"
-    config_path.write_text(
-        config_path.read_text(encoding="utf-8").replace(
-            "  publishing: APPROVAL_REQUIRED", "  publishing: AUTONOMOUS"
-        ),
-        encoding="utf-8",
-    )
+    _set_publishing_mode(project, "AUTONOMOUS")
     conn = sqlite3.connect(project / "data" / "ghostcash.db")
     _ready(conn, 1)
     conn.close()

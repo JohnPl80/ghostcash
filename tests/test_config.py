@@ -12,7 +12,11 @@ def test_load_config_from_example_file_uses_documented_defaults():
     assert config.ai.provider == "gemini"
     assert config.scoring_weights.curiosity == pytest.approx(0.20)
     assert config.monthly_budget.total == pytest.approx(15)
-    assert config.human_approval_mode.publishing == "APPROVAL_REQUIRED"
+    # Switched on deliberately on 2026-10-26 (automatic queueing in Buffer). The
+    # GitHub runner builds its config.yaml from this file, so the example file
+    # itself has to say AUTONOMOUS. The code default in schema.py stays
+    # APPROVAL_REQUIRED.
+    assert config.human_approval_mode.publishing == "AUTONOMOUS"
     assert config.platforms == ["YOUTUBE", "TIKTOK", "INSTAGRAM"]
 
 
