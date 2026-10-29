@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import json
 import logging
 import sqlite3
 import subprocess
@@ -179,34 +178,28 @@ def _probe_duration_seconds(path: str | Path, ffprobe_binary: str) -> float:
         raise RenderError(f"Unexpected ffprobe output for {path}: {result.stdout!r}") from exc
 
 
+# Gap between lines of the big scene text, in pixels.
+_LINE_SPACING_PX = 14
+
+
 def _count_available_segments(content: Content) -> int:
-    visual_items = _parse_visual_sequence(content)
-    if visual_items:
-        return len(visual_items)
+    """How many middle scenes the spoken script can fill.
+
+    Only the script counts. visual_sequence holds the AI's shot directions
+    ("Screen recording of a chaotic desktop") - instructions for a picture,
+    not words for the viewer - so it is never shown on screen."""
     return max(len(split_sentences(content.script or "")), 1)
-
-
-def _parse_visual_sequence(content: Content) -> list[str]:
-    if not content.visual_sequence_json:
-        return []
-    try:
-        parsed = json.loads(content.visual_sequence_json)
-    except (json.JSONDecodeError, TypeError):
-        return []
-    if not isinstance(parsed, list):
-        return []
-    return [str(item).strip() for item in parsed if str(item).strip()]
 
 
 def _derive_middle_segments(content: Content, count: int) -> list[str]:
     """Return exactly `count` non-empty text segments for a template's
-    middle scenes: visual_sequence entries when there are enough
-    (they already describe on-screen beats), otherwise the script split
-    into `count` roughly-equal sentence groups."""
-    visual_items = _parse_visual_sequence(content)
-    if len(visual_items) >= count:
-        return visual_items[:count]
+    middle scenes: the spoken script split into `count` roughly-equal
+    sentence groups, so the big text always matches what the voice says.
 
+    visual_sequence is deliberately NOT used: its entries are shot
+    directions for a picture (which GhostCash does not have yet), and
+    showing them as text put lines like "Close up of Notepad opening with
+    code" on screen while the voice said something else (2026-10-29)."""
     sentences = split_sentences(content.script or "") or [content.script or ""]
     groups = chunk_evenly(sentences, count)
     segments = [" ".join(group).strip() for group in groups]
@@ -283,26 +276,36 @@ def _build_filter_complex(
     font_path = _escape_filter_path(template.font_path)
 
     for index, scene in enumerate(scenes):
-        text_path = work_dir / f"scene_{index}.txt"
         wrapped_text = wrap_text_to_width(
             scene.text,
             font_path=template.font_path,
             font_size=template.font_size,
             max_width_px=int(width * 0.85),
         )
-        text_path.write_text(wrapped_text, encoding="utf-8")
+        lines = [line for line in wrapped_text.split("\n") if line.strip()] or [" "]
 
         bg_label, txt_label, out_label = f"bg{index}", f"txt{index}", f"scene{index}"
         parts.append(
             f"color=c={scene.background_color}:s={width}x{height}:"
             f"d={scene.duration_seconds:.3f}[{bg_label}]"
         )
-        parts.append(
-            f"[{bg_label}]drawtext=fontfile={font_path}:"
-            f"textfile={_escape_filter_path(str(text_path))}:"
-            f"fontsize={template.font_size}:fontcolor={template.text_color}:"
-            f"line_spacing=14:x=(w-text_w)/2:y=(h-text_h)/2:box=0[{txt_label}]"
-        )
+        # One drawtext per line, so ffmpeg never sees a line-break
+        # character: newer ffmpeg builds (GitHub's runners) draw it as a
+        # box glyph at the end of the line. Each line is also centred on
+        # its own, and the block as a whole sits in the middle.
+        line_height = template.font_size + _LINE_SPACING_PX
+        block_top = f"(h-{len(lines) * line_height - _LINE_SPACING_PX})/2"
+        draws: list[str] = []
+        for line_index, line in enumerate(lines):
+            line_path = work_dir / f"scene_{index}_line_{line_index}.txt"
+            line_path.write_text(line, encoding="utf-8")
+            draws.append(
+                f"drawtext=fontfile={font_path}:"
+                f"textfile={_escape_filter_path(str(line_path))}:"
+                f"fontsize={template.font_size}:fontcolor={template.text_color}:"
+                f"x=(w-text_w)/2:y={block_top}+{line_index * line_height}:box=0"
+            )
+        parts.append(f"[{bg_label}]{','.join(draws)}[{txt_label}]")
         fade_out_start = max(0.0, scene.duration_seconds - fade_duration)
         parts.append(
             f"[{txt_label}]fade=t=in:st=0:d={fade_duration:.3f},"

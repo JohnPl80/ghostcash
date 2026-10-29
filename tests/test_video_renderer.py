@@ -43,12 +43,13 @@ def _approved_content(**overrides) -> Content:
 # ---------------------------------------------------------------------
 
 
-def test_count_available_segments_prefers_visual_sequence():
+def test_count_available_segments_ignores_visual_sequence():
+    # Shot directions are not spoken text; only the script decides the count.
     content = _approved_content(
         visual_sequence_json=json.dumps(["a", "b", "c", "d"]),
         script="Only one sentence here",
     )
-    assert _count_available_segments(content) == 4
+    assert _count_available_segments(content) == 1
 
 
 def test_count_available_segments_falls_back_to_sentences():
@@ -60,6 +61,7 @@ def test_build_scenes_information_shape():
     content = _approved_content(
         content_type="INFORMATION",
         visual_sequence_json=json.dumps(["point a", "point b"]),
+        script="Point a is here. Point b is here.",
     )
     template = load_template("INFORMATION")
     scenes = _build_scenes(content, template)
@@ -71,15 +73,29 @@ def test_build_scenes_information_shape():
 
 
 def test_build_scenes_list_numbers_points():
-    content = _approved_content(
-        content_type="LIST", visual_sequence_json=json.dumps(["first", "second"])
-    )
+    content = _approved_content(content_type="LIST", script="First thing. Second thing.")
     template = load_template("LIST")
     scenes = _build_scenes(content, template)
 
     point_scenes = [s for s in scenes if s.slot.startswith("POINT_")]
-    assert point_scenes[0].text == "1. first"
-    assert point_scenes[1].text == "2. second"
+    assert point_scenes[0].text == "1. First thing."
+    assert point_scenes[1].text == "2. Second thing."
+
+
+def test_build_scenes_never_shows_visual_directions():
+    # 2026-10-29: shot directions such as "Close up of Notepad opening with
+    # code" appeared as the big on-screen text. Every middle scene must be
+    # taken from the spoken script instead.
+    directions = ["Close up of Notepad opening with code", "Screen recording of a desktop"]
+    content = _approved_content(
+        content_type="INFORMATION",
+        visual_sequence_json=json.dumps(directions),
+        script="Open Notepad and paste the code. Then save it as a batch file.",
+    )
+    scenes = _build_scenes(content, load_template("INFORMATION"))
+    on_screen = " ".join(s.text for s in scenes)
+    assert all(d not in on_screen for d in directions)
+    assert "Open Notepad and paste the code." in on_screen
 
 
 def test_build_scenes_problem_solution_is_always_four_scenes():
@@ -376,3 +392,23 @@ def test_render_batch_rerenders_content_whose_video_vanished(migrated_conn, tmp_
     assert row["status"] == "READY"
     assert row["rendered_video_path"] == result.output_path
     assert Path(result.output_path).exists()
+
+
+def test_filter_complex_draws_each_line_separately_without_newlines(tmp_path):
+    # 2026-10-29: newer ffmpeg (GitHub's runners) drew the line break of a
+    # multi-line text file as a box glyph. Each line must be its own
+    # drawtext, and no text file handed to ffmpeg may contain a newline.
+    from ghostcash.video.renderer import _build_filter_complex
+
+    template = load_template("INFORMATION")
+    long_text = "Never manually clean your desktop files ever again, not even once a year."
+    scenes = [Scene("HOOK", long_text, "#000000"), Scene("CTA", "Follow.", "#111111")]
+    _allocate_durations(scenes, total_duration=4.0, min_scene_seconds=1.0)
+    graph = _build_filter_complex(scenes, template, tmp_path / "s.ass", 1080, 1920, tmp_path)
+
+    line_files = sorted(tmp_path.glob("scene_0_line_*.txt"))
+    assert len(line_files) >= 2
+    assert all("\n" not in f.read_text(encoding="utf-8") for f in line_files)
+    hook_chain = graph.split(";")[1]
+    assert hook_chain.count("drawtext=") == len(line_files)
+    assert "line_spacing" not in graph
