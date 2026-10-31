@@ -125,8 +125,8 @@ def test_oldwisdom_config_values(no_buffer_env):
     assert config.brand.name == "Old Wisdom, New Day"
     assert config.brand.buffer_api_key_env == "BUFFER_API_KEY_OLDWISDOM"
     assert config.video.tts_gemini_voice == "Charon"  # male narrator
-    # New channel: drafts first, whatever Shortcut Club's setting is.
-    assert config.human_approval_mode.publishing == "APPROVAL_REQUIRED"
+    # Switched to automatic queueing on 2026-10-31 (owner's decision).
+    assert config.human_approval_mode.publishing == "AUTONOMOUS"
     assert config.content.required_mentions
     assert "cure" in config.content.forbidden_phrases
     # Inherited from the main config.

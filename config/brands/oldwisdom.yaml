@@ -34,10 +34,11 @@ publishing:
   # Education. (26 = Howto & Style, 22 = People & Blogs)
   youtube_category_id: "27"
 
-# New channel: the first videos go to Buffer as DRAFTS so the owner can look
-# at them in the Buffer app first. Switch to AUTONOMOUS once they look right.
+# Videos go straight into Buffer's queue at the next free slot (owner's
+# decision 2026-10-31, after the first two drafts looked and sounded right).
+# Set APPROVAL_REQUIRED to go back to drafts.
 human_approval_mode:
-  publishing: APPROVAL_REQUIRED
+  publishing: AUTONOMOUS
 
 content:
   topics_per_run: 12
