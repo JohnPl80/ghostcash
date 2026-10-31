@@ -39,7 +39,7 @@ def run(args: argparse.Namespace) -> int:
         print(f"[error] {exc}")
         return 1
 
-    missing = validate_environment(["publishing"])
+    missing = validate_environment(["publishing"], config)
     if missing:
         print(f"[error] missing required environment variable(s): {', '.join(missing)}")
         return 1

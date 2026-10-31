@@ -238,7 +238,7 @@ def _publish_for_real(
     this run" rather than failing the whole `ghostcash run`, since
     content generation/rendering already succeeded and shouldn't be
     thrown away over a publishing-specific problem."""
-    missing = validate_environment(["publishing"])
+    missing = validate_environment(["publishing"], config)
     if missing:
         return 0, (
             f"[info] publishing skipped - missing environment variable(s): {', '.join(missing)}."
@@ -274,7 +274,7 @@ def _collect_analytics_for_real(conn: sqlite3.Connection, config: Config) -> Non
     """The live-mode "analytics records" step, same as `ghostcash
     analytics`. Never raises, for the same reason as
     _publish_for_real()."""
-    missing = validate_environment(["publishing"])
+    missing = validate_environment(["publishing"], config)
     if missing:
         print(f"[info] analytics skipped - missing environment variable(s): {', '.join(missing)}.")
         return

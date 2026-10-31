@@ -277,3 +277,58 @@ def test_media_asset_name_carries_brand_prefix(tmp_path):
     branded = media_asset_name(7, str(video), "oldwisdom")
     assert plain.startswith("content_7_")
     assert branded == "oldwisdom_" + plain
+
+
+# ---------------------------------------------------------------------
+# Commands check the brand's own Buffer key variable (2026-10-31: the
+# first live brand run failed because `publish` demanded BUFFER_API_KEY)
+# ---------------------------------------------------------------------
+
+
+def test_validate_environment_checks_the_brands_key(monkeypatch, no_buffer_env):
+    from ghostcash.config.loader import validate_environment
+
+    config = load_config(OLDWISDOM, load_env_file=False)
+    assert validate_environment(["publishing"], config) == ["BUFFER_API_KEY_OLDWISDOM"]
+    monkeypatch.setenv("BUFFER_API_KEY_OLDWISDOM", "k")
+    assert validate_environment(["publishing"], config) == []
+    # Without a config, and for the main channel, it is still BUFFER_API_KEY.
+    assert validate_environment(["publishing"]) == ["BUFFER_API_KEY"]
+    assert validate_environment(["publishing"], Config()) == ["BUFFER_API_KEY"]
+
+
+def test_brand_publish_runs_with_only_its_own_key(tmp_path, monkeypatch, no_buffer_env):
+    from unittest.mock import MagicMock
+
+    import ghostcash.cli.commands.publish as publish_cmd
+    from ghostcash.cli.main import main
+    from ghostcash.publishing.buffer import BufferPublisher
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config" / "brands").mkdir(parents=True)
+    (tmp_path / "config" / "config.example.yaml").write_text(
+        (REPO_ROOT / "config" / "config.example.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "config" / "brands" / "oldwisdom.yaml").write_text(
+        OLDWISDOM.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    monkeypatch.setenv("BUFFER_API_KEY_OLDWISDOM", "brand-key")
+    seen_keys: list[str] = []
+
+    def fake_get_publisher(config):
+        seen_keys.append(config.buffer_api_key)
+        publisher = MagicMock(spec=BufferPublisher)
+        publisher.get_organizations.return_value = [{"id": "org1", "name": "Org"}]
+        publisher.get_channels.return_value = []
+        return publisher
+
+    monkeypatch.setattr(publish_cmd, "get_publisher", fake_get_publisher)
+    monkeypatch.setattr(publish_cmd, "get_media_host", lambda config: MagicMock())
+
+    brand = ["--config", "config/brands/oldwisdom.yaml"]
+    assert main([*brand, "init"]) == 0
+    assert main([*brand, "publish"]) == 0
+    assert seen_keys == ["brand-key"]
+    assert (tmp_path / "data" / "backups" / "brands" / "oldwisdom" / "ghostcash.db").exists()
+    assert not (tmp_path / "data" / "ghostcash.db").exists()

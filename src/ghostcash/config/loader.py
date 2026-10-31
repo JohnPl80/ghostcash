@@ -256,12 +256,18 @@ def load_config(path: str | Path | None = None, load_env_file: bool = True) -> C
     return config
 
 
-def validate_environment(features: list[str]) -> list[str]:
+def validate_environment(features: list[str], config: Config | None = None) -> list[str]:
     """Return the list of required environment variables missing for the
-    given feature names (see REQUIRED_ENV_BY_FEATURE). Empty list = OK."""
+    given feature names (see REQUIRED_ENV_BY_FEATURE). Empty list = OK.
+
+    With `config`, publishing checks the variable that channel actually
+    uses (`brand.buffer_api_key_env`, e.g. BUFFER_API_KEY_OLDWISDOM) instead
+    of BUFFER_API_KEY."""
     missing: list[str] = []
     for feature in features:
         for var in REQUIRED_ENV_BY_FEATURE.get(feature, []):
+            if feature == "publishing" and var == "BUFFER_API_KEY" and config is not None:
+                var = (config.brand.buffer_api_key_env or "BUFFER_API_KEY").strip()
             if not os.environ.get(var):
                 missing.append(var)
     return missing

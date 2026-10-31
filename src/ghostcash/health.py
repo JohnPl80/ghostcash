@@ -222,7 +222,10 @@ def check_system(config: Config | None, db_path: str | None) -> HealthCheckResul
             except PublisherError as exc:
                 result.issues.append(f"Buffer API not reachable: {exc}")
         else:
-            result.notes.append("[info] BUFFER_API_KEY not set - `ghostcash publish` needs it")
+            result.notes.append(
+                f"[info] {config.brand.buffer_api_key_env or 'BUFFER_API_KEY'} not set - "
+                "`ghostcash publish` needs it"
+            )
 
         if config.publishing.media_host == "github_release":
             if not config.publishing.github_repo:

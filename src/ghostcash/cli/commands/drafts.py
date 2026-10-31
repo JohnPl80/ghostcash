@@ -76,7 +76,7 @@ def _discard(args: argparse.Namespace) -> int:
             print("Add --apply to delete the drafts listed above from Buffer.")
             return 0
 
-        missing = validate_environment(["publishing"])
+        missing = validate_environment(["publishing"], config)
         if missing:
             print(f"[error] missing required environment variable(s): {', '.join(missing)}")
             return 1
