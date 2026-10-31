@@ -1,0 +1,114 @@
+# "Old Wisdom, New Day" - the self-development channel.
+#
+# Starts from the main config/config.example.yaml (AI model, voice engine,
+# media host, ...) and changes only what makes this channel different. It has
+# its OWN database, videos, saved narration, Buffer account and learning, so it
+# never touches Shortcut Club's data. Run any command for this channel with:
+#
+#     ghostcash --config config/brands/oldwisdom.yaml <command>
+#
+# Everything this channel keeps between GitHub runs lives under
+# data/backups/brands/oldwisdom/, because the workflows only keep
+# data/ghostcash.db and data/backups (that list must never change).
+extends: ../config.example.yaml
+
+brand:
+  key: oldwisdom
+  name: "Old Wisdom, New Day"
+  description: >-
+    calm self-development videos: one short, genuine quote from a classic
+    thinker such as Seneca, Marcus Aurelius, Epictetus, Lao Tzu or Emerson,
+    explained in plain words, with one simple way to use it today
+  categories_file: config/brands/oldwisdom_categories.yaml
+  templates_dir: templates/video/oldwisdom
+  # Its own Buffer account. Never falls back to Shortcut Club's key.
+  buffer_api_key_env: BUFFER_API_KEY_OLDWISDOM
+
+database_path: data/backups/brands/oldwisdom/ghostcash.db
+
+backup:
+  backup_dir: data/backups/brands/oldwisdom/backups
+
+publishing:
+  posts_per_day: 2
+  # Education. (26 = Howto & Style, 22 = People & Blogs)
+  youtube_category_id: "27"
+
+# New channel: the first videos go to Buffer as DRAFTS so the owner can look
+# at them in the Buffer app first. Switch to AUTONOMOUS once they look right.
+human_approval_mode:
+  publishing: APPROVAL_REQUIRED
+
+content:
+  topics_per_run: 12
+  # Small batches: the free voice allowance (about 10 videos a day) is shared
+  # with Shortcut Club, which always runs first.
+  content_per_run: 3
+  cta_guidance: >-
+    Ask the viewer only to follow for a new idea every day, save this video for
+    a hard moment, or share it with someone who needs it today. Do not mention
+    any link, 'link in bio', commenting a keyword to receive something, a
+    download, a book, a product, a course, a newsletter or a discount - none of
+    those exist yet.
+  writing_guidance: >-
+    Build the video around ONE short quote from one of these classic authors:
+    Seneca, Marcus Aurelius, Epictetus, Epicurus, Cicero, Plutarch, Heraclitus,
+    Lao Tzu, Zhuangzi, Confucius, Sun Tzu, Miyamoto Musashi, Michel de
+    Montaigne, Benjamin Franklin, Ralph Waldo Emerson, Henry David Thoreau,
+    Walt Whitman, Leo Tolstoy, Goethe. Name the author in the script. Only
+    quote words you are certain the author really wrote, in an old
+    public-domain translation; if you are not certain of the exact wording, do
+    not use quotation marks - say "Seneca taught that..." and put the idea in
+    your own plain words. Never invent a quote or attribute modern sayings to
+    these authors. After the quote, explain it in plain modern language and end
+    with ONE small, concrete thing the viewer can do today. Calm, warm and
+    grounded tone - no hype, no shouting, no "this will change your life".
+    No medical, mental-health, money or success promises.
+  required_mentions:
+    - Seneca
+    - Marcus Aurelius
+    - Epictetus
+    - Epicurus
+    - Cicero
+    - Plutarch
+    - Heraclitus
+    - Lao Tzu
+    - Laozi
+    - Zhuangzi
+    - Chuang Tzu
+    - Confucius
+    - Sun Tzu
+    - Musashi
+    - Montaigne
+    - Benjamin Franklin
+    - Emerson
+    - Thoreau
+    - Walt Whitman
+    - Tolstoy
+    - Goethe
+  forbidden_phrases:
+    - cure
+    - cures
+    - heal
+    - heals
+    - healing
+    - anxiety
+    - depression
+    - trauma
+    - therapy
+    - medication
+    - diagnose
+    - guaranteed
+    - studies show
+    - scientifically proven
+    - manifest money
+    - manifest wealth
+    - get rich
+
+video:
+  output_dir: assets/generated/oldwisdom
+  audio_cache_dir: data/backups/brands/oldwisdom/audio
+  render_per_run: 3
+  # Male narrator (Gemini voice "Charon"), calmer than Shortcut Club's.
+  tts_gemini_voice: Charon
+  tts_gemini_style: "calm, warm and thoughtful, at an unhurried but natural pace"

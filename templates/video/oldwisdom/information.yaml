@@ -1,0 +1,32 @@
+# Old Wisdom, New Day - information template. Same scene structure as
+# templates/video/information.yaml; only the look differs (dusk-to-dawn colours,
+# serif font from the fonts-dejavu-extra package).
+
+description: "Hook, 2-3 supporting points, then a call to action."
+
+colors:
+  # Cycled across the HOOK + POINT scenes, in order (repeats if there
+  # are more scenes than colors).
+  background:
+    - "#1E1A33"
+    - "#2C2240"
+    - "#3A2A4A"
+  # The CTA scene always gets its own distinct color, so it visually
+  # stands out as "the ask".
+  cta_background: "#9C4F3D"
+  text: "#FFF3DD"
+
+font:
+  path: /usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf
+  family: DejaVu Serif
+  size: 64
+  subtitle_size: 40
+
+transition:
+  duration_seconds: 0.3
+
+# How many POINT scenes to generate, bounded by however much source
+# material (visual_sequence / script) is actually available.
+points:
+  min: 2
+  max: 3

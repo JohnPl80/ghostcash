@@ -996,6 +996,37 @@ at it in `config.yaml`.
 You can also add a product manually at any time by inserting directly
 into the `products` table with `status = 'ACTIVE'`.
 
+## 15. Running more than one channel (brands)
+
+Each extra channel ("brand") is one config file in `config/brands/` that
+starts from the main config (`extends: ../config.example.yaml`) and changes
+only what differs: name and description (given to the AI), topic categories,
+video look (`templates_dir`), narrator voice, posting pace, approval mode,
+writing rules, required/forbidden phrases, and which environment variable
+holds its Buffer key. It has its own database, backups, saved narration and
+videos, all under `data/backups/brands/<key>/` (inside the folder the
+workflows keep between runs), so channels never share a queue, analytics or
+learning. The brand's database path always wins over `DATABASE_PATH`.
+
+Run any command for a brand with `--config`, for example:
+
+    ghostcash --config config/brands/oldwisdom.yaml queue
+
+In GitHub Actions, `scripts/brand_run.sh <nightly|publishing|analytics>` runs a
+brand after the main channel (see the "Old Wisdom, New Day" steps in the
+workflows). Those steps are `continue-on-error`, so a problem with a brand
+shows as a warning and never stops the main channel. The brand reads ONLY its
+own Buffer key variable (`brand.buffer_api_key_env`, e.g.
+`BUFFER_API_KEY_OLDWISDOM`) and never falls back to `BUFFER_API_KEY`; without
+its key it writes and renders videos but sends nothing to Buffer.
+
+To add another brand: copy `config/brands/oldwisdom.yaml`, its categories file
+and `templates/video/oldwisdom/`, change the key, paths and Buffer variable,
+add the secret in GitHub, and add matching workflow steps.
+
+The free Gemini voice allowance (about 10 videos a day) is shared by all
+channels; the main channel runs first each night.
+
 ## Roadmap
 
 - [x] Phase 1 - Repository + configuration + database

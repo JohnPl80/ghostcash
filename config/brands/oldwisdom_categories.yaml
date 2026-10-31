@@ -1,0 +1,24 @@
+# Topic categories for "Old Wisdom, New Day" (see config/brands/oldwisdom.yaml).
+# The optimizer learns which of these perform best for this channel only.
+
+categories:
+  - key: CALM
+    label: "Calm and dealing with worry"
+  - key: DISCIPLINE
+    label: "Discipline and habits"
+  - key: RESILIENCE
+    label: "Hard times and setbacks"
+  - key: TIME
+    label: "Time, mortality and priorities"
+  - key: RELATIONSHIPS
+    label: "Friends, family and other people"
+  - key: SIMPLICITY
+    label: "Simple living and wanting less"
+  - key: SELF_KNOWLEDGE
+    label: "Knowing yourself"
+  - key: PURPOSE
+    label: "Meaning and purpose"
+  - key: COURAGE
+    label: "Courage and action"
+  - key: GRATITUDE
+    label: "Gratitude and enjoying the present"

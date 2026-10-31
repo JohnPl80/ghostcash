@@ -172,7 +172,10 @@ def check_system(config: Config | None, db_path: str | None) -> HealthCheckResul
     template_problems = []
     for template_name in TEMPLATE_NAMES:
         try:
-            load_template(template_name)
+            if config is not None and config.brand.templates_dir:
+                load_template(template_name, Path(config.brand.templates_dir))
+            else:
+                load_template(template_name)
         except TemplateError as exc:
             template_problems.append(str(exc))
     if template_problems:

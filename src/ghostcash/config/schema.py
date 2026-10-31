@@ -149,6 +149,20 @@ class ContentConfig:
     # safety net for when the AI ignores `cta_guidance`.
     reject_unavailable_offers: bool = True
 
+    # Extra writing rules for this channel, added to the script prompt (tone,
+    # what every video must contain). Empty = none.
+    writing_guidance: str = ""
+
+    # When not empty, every script must name at least one of these (for
+    # example the authors a quotes channel may quote); a draft that names none
+    # of them is rejected. Matching ignores case.
+    required_mentions: list[str] = field(default_factory=list)
+
+    # Words or phrases that must never appear in the hook, script, caption or
+    # call to action (whole-word match, case ignored). A draft containing one
+    # is rejected - for example health promises on a self-development channel.
+    forbidden_phrases: list[str] = field(default_factory=list)
+
 
 @dataclass
 class ScoringWeights:
@@ -336,6 +350,33 @@ class OptimizationConfig:
 
 
 @dataclass
+class BrandConfig:
+    """Which channel ("brand") this configuration runs.
+
+    GhostCash can run several channels with different themes. Each one is a
+    separate configuration file with its own database, video files, voice,
+    topics and Buffer account (see config/brands/). The defaults below are
+    the original single channel, so a config without a `brand:` section
+    behaves exactly as before.
+    """
+
+    # Short id used in file names and log lines; empty = the original channel.
+    key: str = ""
+    # The channel's public name and a sentence or two about what it is.
+    # Both are given to the AI when it invents topics and writes scripts.
+    name: str = ""
+    description: str = ""
+    # Topic categories and video look for this channel.
+    categories_file: str = "config/content_categories.yaml"
+    templates_dir: str = "templates/video"
+    # The environment variable that holds THIS channel's Buffer API key.
+    # A brand with its own Buffer account names its own variable here and
+    # never falls back to BUFFER_API_KEY, so its videos can never be posted
+    # to another channel's account by mistake.
+    buffer_api_key_env: str = "BUFFER_API_KEY"
+
+
+@dataclass
 class Config:
     """Top-level GhostCash configuration."""
 
@@ -359,6 +400,7 @@ class Config:
     backup: BackupConfig = field(default_factory=BackupConfig)
     video: VideoConfig = field(default_factory=VideoConfig)
     optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
+    brand: BrandConfig = field(default_factory=BrandConfig)
 
     # Secrets - normally left empty in YAML and supplied via environment
     # variables instead (see config/loader.py ENV_OVERRIDES).

@@ -1,0 +1,26 @@
+# Old Wisdom, New Day - list template. Same scene structure as
+# templates/video/list.yaml; only the look differs (dusk-to-dawn colours,
+# serif font from the fonts-dejavu-extra package).
+
+description: "Numbered list intro, then one scene per item, then a CTA."
+
+colors:
+  background:
+    - "#1E1A33"
+    - "#2C2240"
+    - "#3A2A4A"
+  cta_background: "#9C4F3D"
+  text: "#FFF3DD"
+
+font:
+  path: /usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf
+  family: DejaVu Serif
+  size: 64
+  subtitle_size: 40
+
+transition:
+  duration_seconds: 0.3
+
+points:
+  min: 2
+  max: 3

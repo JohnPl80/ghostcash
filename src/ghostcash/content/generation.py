@@ -156,14 +156,25 @@ def _build_prompt(
     hook_type_hint: str | None,
     template_hint: str | None,
     cta_guidance: str = "",
+    brand_name: str = "",
+    brand_description: str = "",
+    writing_guidance: str = "",
 ) -> str:
     audience = topic.target_audience or "a general audience"
+    name = (brand_name or "").strip()
+    description = " ".join((brand_description or "").split())
+    channel = ""
+    if name:
+        about = f" ({description})." if description else "."
+        channel = f' It is for the channel "{name}"{about}'
+    extra = " ".join((writing_guidance or "").split())
+    extra = f" Channel rules: {extra}" if extra else ""
     hook_hint = (
         f' Consider this hook as inspiration if it fits: "{topic.hook}".' if topic.hook else ""
     )
     return (
         f'Write a short-form faceless video script for this topic: "{topic.topic}" '
-        f"(category: {topic.category}). Target audience: {audience}. "
+        f"(category: {topic.category}). Target audience: {audience}.{channel} "
         "The video is voiceover plus on-screen text only, no on-camera talent, "
         f"15-35 seconds long (roughly {max_words} words or fewer in the script). "
         "Focus on exactly ONE specific idea. "
@@ -174,6 +185,7 @@ def _build_prompt(
         "wording, unsupported claims, fabricated statistics or quotations, and "
         f"copied or plagiarized content.{hook_hint}"
         f"{_performance_hint(hook_type_hint, template_hint)}"
+        f"{extra}"
         f"{_cta_instruction(cta_guidance)}"
     )
 
@@ -192,6 +204,9 @@ def generate_draft_for_topic(
         hook_type_hint,
         template_hint,
         config.content.cta_guidance,
+        config.brand.name,
+        config.brand.description,
+        config.content.writing_guidance,
     )
     try:
         result = ai_provider.structured_generate(prompt, _content_schema())

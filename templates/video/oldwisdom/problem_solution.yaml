@@ -1,0 +1,23 @@
+# Old Wisdom, New Day - problem_solution template. Same scene structure as
+# templates/video/problem_solution.yaml; only the look differs (dusk-to-dawn colours,
+# serif font from the fonts-dejavu-extra package).
+
+description: "A problem, why it happens, the solution, then a call to action."
+
+colors:
+  # One color per fixed scene, in order: PROBLEM, WHY_IT_HAPPENS, SOLUTION.
+  background:
+    - "#1E1A33"
+    - "#2C2240"
+    - "#3A2A4A"
+  cta_background: "#9C4F3D"
+  text: "#FFF3DD"
+
+font:
+  path: /usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf
+  family: DejaVu Serif
+  size: 60
+  subtitle_size: 40
+
+transition:
+  duration_seconds: 0.3

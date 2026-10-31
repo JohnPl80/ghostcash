@@ -107,9 +107,12 @@ def _variant_schema() -> dict[str, Any]:
     }
 
 
-def _build_prompt(winner: Content, cta_guidance: str = "") -> str:
+def _build_prompt(winner: Content, cta_guidance: str = "", writing_guidance: str = "") -> str:
     guidance = (cta_guidance or "").strip()
     cta_rule = f"For the calls to action: {guidance}\n" if guidance else ""
+    writing = " ".join((writing_guidance or "").split())
+    if writing:
+        cta_rule = f"Every new script must follow these channel rules: {writing}\n" + cta_rule
     return (
         "This short-form video performed exceptionally well:\n"
         f"Category: {winner.category}\n"
@@ -247,7 +250,7 @@ def _replicate_one(
     usage_tracker: UsageTracker | None,
 ) -> ReplicationResult:
     assert winner.id is not None
-    prompt = _build_prompt(winner, config.content.cta_guidance)
+    prompt = _build_prompt(winner, config.content.cta_guidance, config.content.writing_guidance)
     try:
         result = ai_provider.structured_generate(prompt, _variant_schema())
     except AIProviderError as exc:

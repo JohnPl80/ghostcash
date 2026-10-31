@@ -175,11 +175,28 @@ def _category_weight_hint(category_weights: dict[str, float]) -> str:
     )
 
 
-def _build_prompt(categories: list[str], count: int, category_weights: dict[str, float]) -> str:
+def _channel_phrase(brand_name: str = "", brand_description: str = "") -> str:
+    """How a prompt names the channel: generic unless a brand is configured."""
+    name = (brand_name or "").strip()
+    description = " ".join((brand_description or "").split())
+    if not name:
+        return "a faceless content channel"
+    phrase = f'the faceless content channel "{name}"'
+    return f"{phrase} ({description})" if description else phrase
+
+
+def _build_prompt(
+    categories: list[str],
+    count: int,
+    category_weights: dict[str, float],
+    brand_name: str = "",
+    brand_description: str = "",
+) -> str:
     category_list = ", ".join(categories)
+    channel = _channel_phrase(brand_name, brand_description)
     return (
-        f"Generate exactly {count} candidate short-form video topic ideas for a faceless "
-        "content channel (15-35 second videos, no on-camera talent, text/voiceover only). "
+        f"Generate exactly {count} candidate short-form video topic ideas for {channel} "
+        "(15-35 second videos, no on-camera talent, text/voiceover only). "
         f"Distribute the ideas across these categories: {category_list}. "
         "Each idea must be a specific, concrete video concept, not a generic theme. "
         "Avoid generic motivational filler, unsupported claims, fabricated statistics, "
@@ -195,7 +212,7 @@ def generate_topics(
     conn: sqlite3.Connection,
     config: Config,
     count: int | None = None,
-    categories_path: Path = CATEGORIES_PATH,
+    categories_path: Path | None = None,
 ) -> list[Topic]:
     """Generate, score, and persist a batch of candidate topics.
 
@@ -210,10 +227,18 @@ def generate_topics(
         )
 
     requested_count = count if count is not None else config.content.topics_per_run
+    if categories_path is None:
+        categories_path = Path(config.brand.categories_file or CATEGORIES_PATH)
     categories = load_categories(categories_path)
     schema = _response_schema(categories)
     category_weights = get_category_weights(conn)
-    prompt = _build_prompt(categories, requested_count, category_weights)
+    prompt = _build_prompt(
+        categories,
+        requested_count,
+        category_weights,
+        config.brand.name,
+        config.brand.description,
+    )
 
     try:
         result = ai_provider.structured_generate(prompt, schema)

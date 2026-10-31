@@ -397,7 +397,7 @@ def render_content(
     content: Content,
     config: Config,
     tts_provider: TTSProvider | None = None,
-    templates_dir: Path = TEMPLATES_DIR,
+    templates_dir: Path | None = None,
 ) -> RenderResult:
     if not (content.script or "").strip():
         raise RenderError("Content has no script to render.")
@@ -414,6 +414,8 @@ def render_content(
         content = copy.copy(content)
         content.script = cleaned_script
 
+    if templates_dir is None:
+        templates_dir = Path(config.brand.templates_dir or TEMPLATES_DIR)
     template = load_template(content_type, templates_dir)
     tts_provider = tts_provider or get_tts_provider(config)
     video_cfg = config.video
@@ -580,7 +582,7 @@ def render_batch(
     config: Config,
     count: int | None = None,
     tts_provider: TTSProvider | None = None,
-    templates_dir: Path = TEMPLATES_DIR,
+    templates_dir: Path | None = None,
 ) -> list[tuple[Content, RenderResult | None, str | None]]:
     """Render up to `count` approved-but-unrendered content items.
 

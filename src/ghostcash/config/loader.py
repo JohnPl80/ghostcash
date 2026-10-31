@@ -22,6 +22,7 @@ from ghostcash.config.schema import (
     AIConfig,
     AnalyticsConfig,
     BackupConfig,
+    BrandConfig,
     Config,
     ContentConfig,
     HumanApprovalMode,
@@ -153,6 +154,7 @@ def _build_config(raw: dict[str, Any]) -> Config:
         backup=_merge(BackupConfig, raw.get("backup") or {}),
         video=_merge(VideoConfig, raw.get("video") or {}),
         optimization=_merge(OptimizationConfig, raw.get("optimization") or {}),
+        brand=_merge(BrandConfig, raw.get("brand") or {}),
         buffer_api_key=raw.get("buffer_api_key", ""),
         gumroad_api_key=raw.get("gumroad_api_key", ""),
         notification_provider=raw.get("notification_provider", ""),
@@ -183,6 +185,48 @@ def _apply_env_overrides(config: Config) -> None:
         current = getattr(target, attr_path[-1])
         setattr(target, attr_path[-1], _coerce_like(current, value))
 
+    # A brand with its own Buffer account reads ONLY its own variable - never
+    # BUFFER_API_KEY - so a missing key means "do not publish", not "publish
+    # to the other channel's account".
+    key_env = (config.brand.buffer_api_key_env or "BUFFER_API_KEY").strip()
+    if key_env != "BUFFER_API_KEY":
+        config.buffer_api_key = os.environ.get(key_env, "")
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _read_yaml_mapping(config_path: Path, seen: tuple[Path, ...] = ()) -> dict[str, Any]:
+    """Read a config file. A file may start from another one with
+    `extends: <path relative to this file>`: everything in the other file
+    applies, and this file's own values win (nested sections are merged key
+    by key). A brand's file uses this to share the main settings."""
+    resolved = config_path.resolve()
+    if resolved in seen:
+        raise ConfigError(f"'{config_path}' extends itself (loop through {seen[-1]}).")
+    if not config_path.exists():
+        raise ConfigError(f"Configuration file '{config_path}' does not exist.")
+    try:
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"Could not parse '{config_path}': {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ConfigError(f"'{config_path}' must contain a YAML mapping at the top level.")
+
+    parent = raw.pop("extends", None)
+    if not parent:
+        return raw
+    parent_path = config_path.parent / str(parent)
+    base = _read_yaml_mapping(parent_path, (*seen, resolved))
+    return _deep_merge(base, raw)
+
 
 def load_config(path: str | Path | None = None, load_env_file: bool = True) -> Config:
     """Load and return the effective GhostCash configuration.
@@ -200,16 +244,15 @@ def load_config(path: str | Path | None = None, load_env_file: bool = True) -> C
             "or run `ghostcash init`."
         )
 
-    try:
-        raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as exc:
-        raise ConfigError(f"Could not parse '{config_path}': {exc}") from exc
-
-    if not isinstance(raw, dict):
-        raise ConfigError(f"'{config_path}' must contain a YAML mapping at the top level.")
-
+    raw = _read_yaml_mapping(config_path)
     config = _build_config(raw)
     _apply_env_overrides(config)
+    # A brand's own database path always wins over DATABASE_PATH: that
+    # variable (set in .env, which `ghostcash init` creates) names the MAIN
+    # channel's database, and letting it through would mix two channels'
+    # content, queue and learning in one file.
+    if config.brand.key and raw.get("database_path"):
+        config.database_path = str(raw["database_path"])
     return config
 
 

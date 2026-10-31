@@ -107,6 +107,30 @@ def _find_unavailable_offer(content: Content) -> str | None:
     return None
 
 
+def _all_text(content: Content) -> str:
+    return " ".join(
+        part for part in (content.hook, content.script, content.caption, content.cta) if part
+    )
+
+
+def _find_forbidden_phrase(content: Content, phrases: list[str]) -> str | None:
+    text = _all_text(content)
+    for phrase in phrases:
+        phrase = (phrase or "").strip()
+        if phrase and re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text, re.IGNORECASE):
+            return phrase
+    return None
+
+
+def _names_required_mention(content: Content, mentions: list[str]) -> bool:
+    text = " ".join(part for part in (content.hook, content.script) if part)
+    return any(
+        re.search(rf"(?<!\w){re.escape(m.strip())}(?!\w)", text, re.IGNORECASE)
+        for m in mentions
+        if (m or "").strip()
+    )
+
+
 def _hard_gate_failures(
     content: Content, conn: sqlite3.Connection, config: Config, check_duplicates: bool = True
 ) -> tuple[list[str], int | None]:
@@ -149,6 +173,17 @@ def _hard_gate_failures(
                 f"promises something that does not exist yet ({offer}) - set "
                 "content.reject_unavailable_offers to false once it does"
             )
+
+    forbidden = _find_forbidden_phrase(content, config.content.forbidden_phrases)
+    if forbidden:
+        reasons.append(f"contains a forbidden phrase ({forbidden!r})")
+
+    mentions = [m for m in config.content.required_mentions if (m or "").strip()]
+    if mentions and script.strip() and not _names_required_mention(content, mentions):
+        reasons.append(
+            "names none of the required sources (content.required_mentions), "
+            "for example " + ", ".join(mentions[:3])
+        )
 
     if content.product_id is not None:
         row = conn.execute(

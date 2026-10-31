@@ -110,6 +110,22 @@ jobs:
           GUMROAD_API_KEY: ${{ secrets.GUMROAD_API_KEY }}
         run: ghostcash products sync-sales
 
+      # Old Wisdom, New Day (config/brands/oldwisdom.yaml): a second channel
+      # with its own database (inside data/backups, so it is kept between
+      # runs), its own videos and its own Buffer account (repository secret
+      # BUFFER_API_KEY_OLDWISDOM - it never uses BUFFER_API_KEY). Also retires its
+      # videos whose Buffer drafts were deleted.
+      # `continue-on-error`: a problem with this channel shows as a warning on
+      # this step but never stops or fails the main channel's run.
+      - name: "Old Wisdom, New Day: analytics"
+        continue-on-error: true
+        env:
+          GHOSTCASH_CONFIG_PATH: config/brands/oldwisdom.yaml
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          BUFFER_API_KEY_OLDWISDOM: ${{ secrets.BUFFER_API_KEY_OLDWISDOM }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/brand_run.sh analytics
+
       - name: Persist database + backups for the next run
         if: always()
         uses: actions/cache/save@v6
