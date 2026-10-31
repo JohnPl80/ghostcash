@@ -31,12 +31,23 @@ has_buffer_key=false; [ -n "${!key_env:-}" ] && has_buffer_key=true
 failed=0
 step() {
     local label="$1"; shift
+    local log; log=$(mktemp)
     echo "::group::$label"
-    if ! "$@"; then
-        echo "::warning title=Extra channel ($config)::$label failed - see the log above"
+    "$@" 2>&1 | tee "$log"
+    local code=${PIPESTATUS[0]}
+    echo "::endgroup::"
+    if [ "$code" -ne 0 ]; then
+        # Put the error lines into the warning itself: the run's summary page
+        # (and the GitHub API) show warnings, while full logs are harder to
+        # reach, for example from a phone.
+        local detail
+        detail=$(grep -iE 'error|fail|denied|invalid|unauthor|forbidden|not found' "$log" | tail -n 12)
+        [ -n "$detail" ] || detail=$(tail -n 8 "$log")
+        detail=$(printf '%s\n' "$detail" | cut -c1-300 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+        echo "::warning title=Extra channel ($config)::$label failed (exit $code):%0A$detail"
         failed=1
     fi
-    echo "::endgroup::"
+    rm -f "$log"
 }
 
 queue_reading() {
