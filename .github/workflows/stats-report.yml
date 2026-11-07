@@ -53,6 +53,16 @@ jobs:
       - name: Prepare local config (first run only)
         run: cp -n config/config.example.yaml config/config.yaml || true
 
+      - name: "Saved backups (all channels)"
+        continue-on-error: true
+        run: |
+          {
+            echo "Main database: $(ls -la data/ghostcash.db 2>/dev/null || echo 'missing')"
+            du -sh data/backups data/backups/* data/backups/brands/* 2>/dev/null
+            python scripts/inspect_backups.py data/backups data/backups/brands/*/backups
+          } | tee backups.txt
+          scripts/emit_notices.sh "Saved backups" backups.txt
+
       - name: "Shortcut Club: statistics"
         continue-on-error: true
         run: |
