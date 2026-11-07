@@ -171,3 +171,20 @@ def test_stats_report_is_manual_and_never_saves_the_database():
     )
     for forbidden in ("publish", "generate", "render", "drafts", "analytics"):
         assert f"ghostcash {forbidden}" not in runs
+
+
+def test_a_missed_restore_stops_the_run_and_is_never_saved():
+    # 2026-10-30: one Publishing run found no saved data, carried on with an
+    # empty database and saved it as the newest copy, which hid every good
+    # copy from all later runs. Now the run stops and nothing is saved -
+    # unless the owner explicitly allows a fresh start.
+    saves = [item for item in _cache_steps() if item[3]["uses"].startswith("actions/cache/save")]
+    assert len(saves) == 5
+    for name, _, steps, step, _ in saves:
+        condition = step["if"]
+        assert "always()" in condition, name
+        assert "steps.restore_db.outputs.cache-matched-key != ''" in condition, name
+        assert "vars.GHOSTCASH_ALLOW_EMPTY_START == 'true'" in condition, name
+        stop = next(s for s in steps if s.get("name") == "Stop if no saved database was found")
+        assert "exit 1" in stop["run"], name
+        assert stop["env"]["ALLOW_EMPTY_START"] == "${{ vars.GHOSTCASH_ALLOW_EMPTY_START }}", name

@@ -95,12 +95,27 @@ jobs:
           restore-keys: |
             ghostcash-data-
 
-      - name: Warn if no saved database was found
+      # If GitHub cannot find the saved data, STOP here (the run fails, which
+      # also alerts the owner) instead of carrying on with an empty database
+      # and then saving that empty database as the newest copy - which hides
+      # every good copy from all later runs. That happened on 2026-10-30 and
+      # lost the main channel's history. The next scheduled run simply tries
+      # again. Only for a genuine fresh start, set the repository variable
+      # GHOSTCASH_ALLOW_EMPTY_START to true (Settings -> Secrets and
+      # variables -> Actions -> Variables) for one run, then delete it.
+      - name: Stop if no saved database was found
         if: steps.restore_db.outputs.cache-matched-key == ''
+        env:
+          ALLOW_EMPTY_START: ${{ vars.GHOSTCASH_ALLOW_EMPTY_START }}
         run: |
-          echo "::warning title=No saved database::No saved GhostCash database was found, so this run starts from an EMPTY one. That is normal only for the very first run ever."
-          echo "[WARN] NO SAVED DATABASE FOUND - this run starts from an empty database."
-          echo "[WARN] If this is not the first run ever, the saved copy is not being restored; see README, Troubleshooting."
+          if [ "$ALLOW_EMPTY_START" = "true" ]; then
+            echo "::warning title=No saved database::Starting from an EMPTY database because GHOSTCASH_ALLOW_EMPTY_START is true. Delete that variable after this run."
+            echo "[WARN] NO SAVED DATABASE FOUND - starting empty on purpose (GHOSTCASH_ALLOW_EMPTY_START)."
+            exit 0
+          fi
+          echo "::error title=No saved database::GitHub could not find the saved GhostCash data, so this run stopped without changing anything. The next run tries again; if this repeats, see README, Troubleshooting."
+          echo "[WARN] NO SAVED DATABASE FOUND - stopping so an empty database is never saved over the real one."
+          exit 1
 
       - uses: actions/setup-python@v5
         with:
@@ -262,7 +277,8 @@ jobs:
         run: ghostcash queue
 
       - name: Persist database + backups for the next run
-        if: always()
+        # Never after a missed restore (see the stop step above).
+        if: always() && (steps.restore_db.outputs.cache-matched-key != '' || vars.GHOSTCASH_ALLOW_EMPTY_START == 'true')
         uses: actions/cache/save@v6
         with:
           path: |

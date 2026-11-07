@@ -996,6 +996,17 @@ at it in `config.yaml`.
 You can also add a product manually at any time by inserting directly
 into the `products` table with `status = 'ACTIVE'`.
 
+### If a run stops with "No saved database"
+
+GitHub occasionally fails to hand back the saved data. Since 2026-11-07 the
+run then stops (and fails, so you get an alert) instead of continuing with an
+empty database: on 2026-10-30 a run continued, saved its empty database as
+the newest copy, and the main channel's earlier history was lost. Usually the
+next scheduled run finds the data again and nothing needs doing. Only for a
+deliberate fresh start, add the repository variable
+`GHOSTCASH_ALLOW_EMPTY_START` = `true` (Settings -> Secrets and variables ->
+Actions -> Variables) for one run, then delete it.
+
 ## 15. Running more than one channel (brands)
 
 Each extra channel ("brand") is one config file in `config/brands/` that
