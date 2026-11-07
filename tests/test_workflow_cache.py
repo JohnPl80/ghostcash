@@ -43,6 +43,7 @@ def test_there_are_cache_steps_in_every_workflow():
         "healthcheck.yml",
         "nightly.yml",
         "publishing.yml",
+        "stats-report.yml",
     }
 
 
@@ -58,7 +59,7 @@ def test_every_restore_is_followed_by_a_no_saved_database_warning():
     restores = [
         item for item in _cache_steps() if item[3]["uses"].startswith("actions/cache/restore")
     ]
-    assert len(restores) == 5
+    assert len(restores) == 6
     for name, index, steps, step, _ in restores:
         assert step.get("id") == "restore_db", name
         warning = steps[index + 1]
@@ -156,3 +157,17 @@ def test_discard_workflow_defaults_to_one_video_and_no_confirmation():
     inputs = _discard_triggers()["workflow_dispatch"]["inputs"]
     assert inputs["how_many"]["default"] == "1"
     assert inputs["confirm"]["default"] == ""
+
+
+def test_stats_report_is_manual_and_never_saves_the_database():
+    document = yaml.safe_load((WORKFLOWS_DIR / "stats-report.yml").read_text(encoding="utf-8"))
+    triggers = document.get("on", document.get(True))
+    assert list(triggers) == ["workflow_dispatch"]
+    assert document["concurrency"]["group"] == "ghostcash-db-state"
+    uses = [step.get("uses", "") for job in document["jobs"].values() for step in job["steps"]]
+    assert not any(u.startswith("actions/cache/save") for u in uses)
+    runs = " ".join(
+        step.get("run", "") for job in document["jobs"].values() for step in job["steps"]
+    )
+    for forbidden in ("publish", "generate", "render", "drafts", "analytics"):
+        assert f"ghostcash {forbidden}" not in runs

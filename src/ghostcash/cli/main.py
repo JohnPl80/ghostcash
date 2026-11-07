@@ -45,6 +45,7 @@ from ghostcash.cli.commands import queue as queue_cmd
 from ghostcash.cli.commands import render as render_cmd
 from ghostcash.cli.commands import report as report_cmd
 from ghostcash.cli.commands import run as run_cmd
+from ghostcash.cli.commands import stats as stats_cmd
 from ghostcash.cli.commands import voice_test as voice_test_cmd
 
 
@@ -121,6 +122,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "buffer-queue", help="Show how many posts wait in Buffer's queue on each channel"
+    )
+
+    stats_parser = subparsers.add_parser(
+        "stats", help="Views, engagement and the product rule per platform, category and video"
+    )
+    stats_parser.add_argument(
+        "--top", type=int, default=10, help="How many top videos to list (default 10)"
     )
 
     drafts_parser = subparsers.add_parser(
@@ -295,6 +303,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_against_database(analytics_cmd.run, args)
     if args.command == "buffer-queue":
         return buffer_queue_cmd.run(args)
+    if args.command == "stats":
+        return stats_cmd.run(args)
     if args.command == "drafts":
         return _run_against_database(drafts_cmd.run, args)
     if args.command == "queue":

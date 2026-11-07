@@ -1,0 +1,87 @@
+name: Stats Report
+
+# Manual only - this workflow never runs on its own.
+#
+# Prints every channel's statistics (`ghostcash stats`: views, engagement and
+# the product rule by platform, category and video) and Buffer queue
+# (`ghostcash buffer-queue`) on the run page: in the job summary and as notice
+# annotations. Started by hand from the Actions tab (or through the API).
+#
+# READ-ONLY: it restores the saved database but never saves it back, never
+# writes to Buffer, and does not generate, render or publish anything. A
+# failing step here never affects the scheduled workflows.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ghostcash-db-state
+
+jobs:
+  stats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # DO NOT add or remove paths in this list (in any workflow). GitHub ties
+      # each saved copy to the exact list of folders; change the list and every
+      # earlier save becomes invisible. This workflow only RESTORES (no save).
+      - name: Restore persisted database + backups
+        id: restore_db
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            data/ghostcash.db
+            data/backups
+          key: ghostcash-data-${{ github.run_id }}
+          restore-keys: |
+            ghostcash-data-
+
+      - name: Warn if no saved database was found
+        if: steps.restore_db.outputs.cache-matched-key == ''
+        run: |
+          echo "::warning title=No saved database::No saved GhostCash database was found, so these statistics are EMPTY. That is normal only for the very first run ever."
+          echo "[WARN] NO SAVED DATABASE FOUND - the statistics below come from an empty database."
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install GhostCash
+        run: pip install -e ".[dev]"
+
+      - name: Prepare local config (first run only)
+        run: cp -n config/config.example.yaml config/config.yaml || true
+
+      - name: "Shortcut Club: statistics"
+        continue-on-error: true
+        run: |
+          ghostcash init > /dev/null
+          ghostcash stats --top 15 | tee stats.txt
+          scripts/emit_notices.sh "Shortcut Club statistics" stats.txt
+
+      - name: "Shortcut Club: Buffer queue"
+        continue-on-error: true
+        env:
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+        run: |
+          ghostcash buffer-queue | tee queue.txt
+          scripts/emit_notices.sh "Shortcut Club Buffer queue" queue.txt
+
+      - name: "Old Wisdom, New Day: statistics"
+        continue-on-error: true
+        env:
+          GHOSTCASH_CONFIG_PATH: config/brands/oldwisdom.yaml
+        run: |
+          ghostcash init > /dev/null
+          ghostcash stats --top 15 | tee stats.txt
+          scripts/emit_notices.sh "Old Wisdom statistics" stats.txt
+
+      - name: "Old Wisdom, New Day: Buffer queue"
+        continue-on-error: true
+        env:
+          GHOSTCASH_CONFIG_PATH: config/brands/oldwisdom.yaml
+          BUFFER_API_KEY_OLDWISDOM: ${{ secrets.BUFFER_API_KEY_OLDWISDOM }}
+        run: |
+          ghostcash buffer-queue | tee queue.txt
+          scripts/emit_notices.sh "Old Wisdom Buffer queue" queue.txt
