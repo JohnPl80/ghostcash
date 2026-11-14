@@ -72,7 +72,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init", help="Create .env/config.yaml and apply database migrations")
-    subparsers.add_parser("health", help="Check configuration, database, and disk health")
+    health_parser = subparsers.add_parser(
+        "health", help="Check configuration, database, and disk health"
+    )
+    health_parser.add_argument(
+        "--skip-buffer",
+        action="store_true",
+        help="Do not spend a Buffer API request on the connectivity check (frequent runs)",
+    )
 
     generate_parser = subparsers.add_parser(
         "generate", help="Generate topics, then scripts, using the configured AI provider"

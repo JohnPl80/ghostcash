@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from ghostcash.config.schema import Config
 from ghostcash.models.content import Content
 from ghostcash.models.publishing import Platform
-from ghostcash.publishing.base import Publisher, PublisherError, ScheduleResult
+from ghostcash.publishing.base import Publisher, PublisherError, RateLimitError, ScheduleResult
 from ghostcash.publishing.media_host import MediaHost, MediaHostError
 
 
@@ -171,6 +171,8 @@ def publish_batch(
         channel_ids = [str(platform.buffer_channel_id) for platform in platforms]
         try:
             waiting = queue_counter(channel_ids)
+        except RateLimitError:
+            raise
         except PublisherError as exc:
             _note(
                 notes,
@@ -241,6 +243,11 @@ def publish_batch(
                 result = publisher.schedule(
                     content, platform, video_url=video_url, save_to_draft=save_to_draft
                 )
+            except RateLimitError:
+                # Nothing was created; the content stays READY and the next
+                # run tries again. Every further request now would be refused.
+                conn.commit()
+                raise
             except PublisherError as exc:
                 _record_published_post(
                     conn, content.id, platform.id, idempotency_key, status="FAILED", error=str(exc)

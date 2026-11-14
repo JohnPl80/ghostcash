@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from ghostcash.analytics.metrics import (
     NormalizedMetrics,
@@ -38,7 +38,7 @@ from ghostcash.analytics.winner import (
     normalize_component_value,
 )
 from ghostcash.config.schema import Config
-from ghostcash.publishing.base import PostNotFoundError
+from ghostcash.publishing.base import PostNotFoundError, RateLimitError
 from ghostcash.publishing.buffer import BufferPublisher
 
 # published_posts rows in these statuses still need checking: DRAFT/
@@ -59,12 +59,17 @@ class CollectionResult:
     # Content whose every tracked post was deleted in Buffer: retired to
     # REJECTED so it stops counting as queued content.
     contents_rejected: int = 0
+    # Trackable posts not due (or over the per-run cap) this run.
+    posts_skipped: int = 0
+    # True when Buffer's request allowance ran out partway through.
+    rate_limited: bool = False
 
 
 def select_trackable_published_posts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     placeholders = ", ".join("?" for _ in _TRACKABLE_STATUSES)
     return conn.execute(
-        f"SELECT pp.id, pp.content_id, pp.platform_id, pp.external_post_id, pp.status "
+        f"SELECT pp.id, pp.content_id, pp.platform_id, pp.external_post_id, pp.status, "
+        f"pp.scheduled_at, pp.published_at, pp.created_at "
         f"FROM published_posts pp JOIN content c ON c.id = pp.content_id "
         f"WHERE pp.status IN ({placeholders}) AND pp.external_post_id IS NOT NULL "
         f"AND c.status != 'REJECTED'",
@@ -95,19 +100,89 @@ def _retire_content_with_no_posts_left(
     return retired
 
 
-def collect_analytics(publisher: BufferPublisher, conn: sqlite3.Connection) -> CollectionResult:
+def _parse_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _refresh_interval(age: timedelta) -> timedelta:
+    if age <= timedelta(days=3):
+        return timedelta(days=1)
+    if age <= timedelta(days=14):
+        return timedelta(days=3)
+    if age <= timedelta(days=60):
+        return timedelta(days=7)
+    return timedelta(days=30)
+
+
+def select_posts_due(
+    conn: sqlite3.Connection, limit: int, now: datetime | None = None
+) -> tuple[list[sqlite3.Row], int]:
+    """The posts worth a Buffer request this run, most overdue first, at
+    most `limit` (0 = all due posts). Returns (rows, how many trackable
+    posts were left for a later run)."""
+    now = now or datetime.now(UTC)
     rows = select_trackable_published_posts(conn)
+    last_collected = {
+        (r["content_id"], r["platform_id"]): _parse_time(r["collected_at"])
+        for r in conn.execute(
+            "SELECT content_id, platform_id, collected_at FROM content_performance"
+        ).fetchall()
+    }
+    due: list[tuple[float, int, sqlite3.Row]] = []
+    for row in rows:
+        if row["status"] in ("SCHEDULED", "DRAFT"):
+            # A queued post has nothing to report until its time has come.
+            # Drafts (owner reviews them) are checked so deleted ones retire.
+            scheduled = _parse_time(row["scheduled_at"])
+            if row["status"] == "SCHEDULED" and scheduled is not None and scheduled > now:
+                continue
+            due.append((float("inf"), row["id"], row))
+            continue
+        sent = _parse_time(row["published_at"]) or _parse_time(row["created_at"]) or now
+        last = last_collected.get((row["content_id"], row["platform_id"]))
+        if last is None:
+            due.append((float("inf"), row["id"], row))
+            continue
+        # A little slack so a daily run at a slightly earlier hour still counts.
+        overdue = (now - last + timedelta(hours=2)) / _refresh_interval(now - sent)
+        if overdue >= 1:
+            due.append((overdue, row["id"], row))
+    due.sort(key=lambda item: (-item[0], item[1]))
+    chosen = [row for _, _, row in (due[:limit] if limit > 0 else due)]
+    return chosen, len(rows) - len(chosen)
+
+
+def collect_analytics(
+    publisher: BufferPublisher,
+    conn: sqlite3.Connection,
+    max_posts: int = 0,
+    now: datetime | None = None,
+) -> CollectionResult:
+    rows, result_skipped = select_posts_due(conn, max_posts, now)
     result = CollectionResult()
+    result.posts_skipped = result_skipped
     missing_by_content: dict[int, set[int]] = {}
 
     for row in rows:
-        result.posts_checked += 1
         try:
             post = publisher.get_post_status_and_metrics(row["external_post_id"])
+        except RateLimitError:
+            # The allowance is used up: keep what was collected so far and
+            # let a later run continue (refused requests do not count).
+            result.rate_limited = True
+            break
         except PostNotFoundError:
+            result.posts_checked += 1
             result.posts_missing += 1
             missing_by_content.setdefault(row["content_id"], set()).add(row["id"])
             continue
+        result.posts_checked += 1
 
         newly_sent = (
             row["status"] in ("SCHEDULED", "DRAFT")

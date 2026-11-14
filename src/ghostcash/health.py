@@ -31,7 +31,7 @@ from ghostcash.database.connection import get_connection
 from ghostcash.database.migrate import available_migrations, get_applied_versions
 from ghostcash.products.base import StoreError
 from ghostcash.products.factory import get_store
-from ghostcash.publishing.base import PublisherError
+from ghostcash.publishing.base import PublisherError, RateLimitError
 from ghostcash.publishing.buffer import BufferPublisher
 from ghostcash.publishing.factory import get_publisher
 from ghostcash.video.renderer import build_gemini_tts, flite_required
@@ -69,7 +69,9 @@ class HealthCheckResult:
         return not self.issues
 
 
-def check_system(config: Config | None, db_path: str | None) -> HealthCheckResult:
+def check_system(
+    config: Config | None, db_path: str | None, check_buffer: bool = True
+) -> HealthCheckResult:
     """Run every health check except config loading itself (the one
     thing only the CLI, which has `args.config_path`, can attempt)."""
     result = HealthCheckResult()
@@ -210,7 +212,11 @@ def check_system(config: Config | None, db_path: str | None) -> HealthCheckResul
                     # hourly health check.
                     result.notes.append(f"[warn] Gemini voice not available: {exc}")
 
-        if config.buffer_api_key:
+        if config.buffer_api_key and not check_buffer:
+            # Each check is one Buffer API request; the free plan allows
+            # 1,000 per channel per 30 days, so frequent runs skip it.
+            result.notes.append("[info] Buffer API not checked this run (saves API requests)")
+        elif config.buffer_api_key:
             try:
                 publisher = get_publisher(config)
                 if isinstance(publisher, BufferPublisher):
@@ -219,6 +225,15 @@ def check_system(config: Config | None, db_path: str | None) -> HealthCheckResul
                     result.notes.append(f"[ok] Buffer API reachable ({label})")
                 else:  # pragma: no cover - only one publisher exists today
                     result.notes.append("[ok] BUFFER_API_KEY is set")
+            except RateLimitError as exc:
+                # Not an "issue": writing and rendering videos do not need
+                # Buffer, and publishing waits by itself until requests are
+                # allowed again. Stopping the whole run here would also stop
+                # the video supply (2026-11-13 to 11-14).
+                result.notes.append(
+                    f"[warn] Buffer's API request allowance is used up for now; publishing "
+                    f"waits until it recovers: {exc}"
+                )
             except PublisherError as exc:
                 result.issues.append(f"Buffer API not reachable: {exc}")
         else:

@@ -132,7 +132,10 @@ jobs:
           GUMROAD_API_KEY: ${{ secrets.GUMROAD_API_KEY }}
         run: |
           ghostcash init
-          ghostcash health
+          # --skip-buffer: Buffer's free plan allows 1,000 API requests per channel
+          # per 30 days; frequent runs must not spend them on a ping. Nightly and
+          # Analytics still check Buffer once a day.
+          ghostcash health --skip-buffer
 
       # Checks the queue before deciding whether an emergency generation
       # pass is worth running. `continue-on-error` because a low reading

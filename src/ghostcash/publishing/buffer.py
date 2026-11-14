@@ -29,6 +29,7 @@ from ghostcash.publishing.base import (
     PostNotFoundError,
     Publisher,
     PublisherError,
+    RateLimitError,
     ScheduleResult,
 )
 
@@ -140,6 +141,8 @@ class BufferPublisher(Publisher):
         except requests.RequestException as exc:
             raise PublisherError(f"Could not reach the Buffer API: {exc}") from exc
 
+        if response.status_code == 429:
+            raise RateLimitError(self._format_http_error(response))
         if not response.ok:
             raise PublisherError(self._format_http_error(response))
 
@@ -153,6 +156,13 @@ class BufferPublisher(Publisher):
         errors = payload.get("errors")
         if errors:
             messages = "; ".join(str(e.get("message", e)) for e in errors)
+            codes = {
+                str((e.get("extensions") or {}).get("code", ""))
+                for e in errors
+                if isinstance(e, dict)
+            }
+            if "RATE_LIMIT_EXCEEDED" in codes:
+                raise RateLimitError(f"Buffer API error: {messages}")
             raise PublisherError(f"Buffer API error: {messages}")
 
         data = payload.get("data")

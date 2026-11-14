@@ -328,6 +328,12 @@ def test_brand_publish_runs_with_only_its_own_key(tmp_path, monkeypatch, no_buff
 
     brand = ["--config", "config/brands/oldwisdom.yaml"]
     assert main([*brand, "init"]) == 0
+    # One READY video, so publish actually talks to (the fake) Buffer.
+    import sqlite3
+
+    brand_db = tmp_path / "data" / "backups" / "brands" / "oldwisdom" / "ghostcash.db"
+    with sqlite3.connect(brand_db) as db:
+        db.execute("INSERT INTO content (topic, category, status) VALUES ('t', 'CALM', 'READY')")
     assert main([*brand, "publish"]) == 0
     assert seen_keys == ["brand-key"]
     assert (tmp_path / "data" / "backups" / "brands" / "oldwisdom" / "ghostcash.db").exists()

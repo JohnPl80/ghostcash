@@ -94,7 +94,10 @@ jobs:
           DATABASE_PATH: data/ghostcash.db
         run: |
           ghostcash init
-          ghostcash health
+          # --skip-buffer: Buffer's free plan allows 1,000 API requests per channel
+          # per 30 days; frequent runs must not spend them on a ping. Nightly and
+          # Analytics still check Buffer once a day.
+          ghostcash health --skip-buffer
 
       - name: Persist database for the next run
         # Never after a missed restore (see the stop step above).

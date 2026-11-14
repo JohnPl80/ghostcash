@@ -473,6 +473,10 @@ def test_publish_records_a_job(isolated_project: Path, monkeypatch):
     monkeypatch.setattr(publish_cmd, "get_publisher", lambda config: fake_publisher)
     monkeypatch.setattr(publish_cmd, "get_media_host", lambda config: _NullMediaHost())
 
+    # With nothing READY, publish does not contact Buffer at all (and records
+    # no job); with one READY video it does.
+    with sqlite3.connect(isolated_project / "data" / "ghostcash.db") as db:
+        db.execute("INSERT INTO content (topic, category, status) VALUES ('t', 'EXCEL', 'READY')")
     main(["publish"])
 
     db_path = isolated_project / "data" / "ghostcash.db"

@@ -27,6 +27,14 @@ class PublisherError(Exception):
     channel/platform combination that isn't supported, validation, etc."""
 
 
+class RateLimitError(PublisherError):
+    """The provider refused the request because the account's API request
+    allowance is used up (Buffer: HTTP 429 / RATE_LIMIT_EXCEEDED; on the
+    free plan 1,000 requests per channel per 30 days, rolling). Nothing is
+    wrong with the request itself - it can only be retried later. A refused
+    request does not count against the allowance."""
+
+
 class PostNotFoundError(PublisherError):
     """The provider has no such post any more - typically a draft or
     scheduled post the owner deleted in Buffer's own interface (which is

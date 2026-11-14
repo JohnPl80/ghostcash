@@ -10,15 +10,16 @@ reported, not fatal - see publishing/pipeline.py.
 from __future__ import annotations
 
 import argparse
+import os
 import traceback
 
 from ghostcash.config.loader import ConfigError, load_config, validate_environment
 from ghostcash.database.connection import get_connection
 from ghostcash.database.jobs import fail_job, start_job, succeed_job
-from ghostcash.publishing.base import PublisherError
+from ghostcash.publishing.base import PublisherError, RateLimitError
 from ghostcash.publishing.buffer import BufferPublisher
 from ghostcash.publishing.buffer_queue import make_queue_counter
-from ghostcash.publishing.channels import resolve_organization_id, sync_channels
+from ghostcash.publishing.channels import resolve_organization_id, sync_channels_if_stale
 from ghostcash.publishing.factory import get_media_host, get_publisher
 from ghostcash.publishing.media_host import MediaHostError
 from ghostcash.publishing.pipeline import (
@@ -44,6 +45,15 @@ def run(args: argparse.Namespace) -> int:
 
     db_path = args.db_path or config.database_path
     conn = get_connection(db_path)
+
+    # Nothing to send -> do not spend any Buffer API request (the free plan
+    # allows 1,000 per channel per 30 days).
+    ready = conn.execute("SELECT COUNT(*) FROM content WHERE status = 'READY'").fetchone()[0]
+    if not ready:
+        conn.close()
+        print("No READY content is waiting to be published (Buffer was not contacted).")
+        return 0
+
     job_id = start_job(conn, "publish_content")
 
     try:
@@ -54,17 +64,19 @@ def run(args: argparse.Namespace) -> int:
                 "Channel sync and organization resolution are Buffer-specific; the "
                 "configured publisher isn't a BufferPublisher."
             )
-        organization_id = resolve_organization_id(publisher, config)
-        sync_result = sync_channels(publisher, conn, organization_id)
+        organization_id = resolve_organization_id(publisher, config, conn)
+        sync_result = sync_channels_if_stale(publisher, conn, organization_id)
+    except RateLimitError as exc:
+        return _hold_for_rate_limit(conn, job_id, exc)
     except (PublisherError, MediaHostError) as exc:
         fail_job(conn, job_id, str(exc), traceback.format_exc())
         conn.close()
         print(f"[error] {exc}")
         return 1
 
-    if sync_result.synced:
+    if sync_result and sync_result.synced:
         print(f"Synced channels: {', '.join(sorted(set(sync_result.synced)))}")
-    if sync_result.skipped_services:
+    if sync_result and sync_result.skipped_services:
         print(
             f"Skipped Buffer channels outside GhostCash's scope: "
             f"{', '.join(sorted(set(sync_result.skipped_services)))}"
@@ -86,6 +98,8 @@ def run(args: argparse.Namespace) -> int:
         conn.close()
         print(f"{exc}")
         return 0
+    except RateLimitError as exc:
+        return _hold_for_rate_limit(conn, job_id, exc)
     except Exception as exc:  # unexpected - record it, then let it surface
         fail_job(conn, job_id, str(exc), traceback.format_exc())
         conn.close()
@@ -143,3 +157,21 @@ def run(args: argparse.Namespace) -> int:
     if queue_unreadable:
         return 1
     return 0 if succeeded or not failed else 1
+
+
+def _hold_for_rate_limit(conn, job_id: int, exc: Exception) -> int:
+    """Buffer's request allowance is used up: nothing more can be sent now.
+    The READY videos simply wait for a later run, so this is reported but
+    is not treated as a failed run (exit 0)."""
+    message = (
+        "Buffer's API request allowance is used up for now, so nothing more was sent "
+        "this run. READY videos stay ready and a later run sends them. "
+        f"({exc})"
+    )
+    fail_job(conn, job_id, message)
+    conn.close()
+    print(f"[hold] {message}")
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        text = " ".join(message.split()).replace("%", "%25")
+        print(f"::warning title=Buffer request limit::{text[:900]}")
+    return 0

@@ -75,7 +75,7 @@ from ghostcash.products.opportunities import OpportunityDetectionError, detect_o
 from ghostcash.publishing.base import PublisherError
 from ghostcash.publishing.buffer import BufferPublisher
 from ghostcash.publishing.buffer_queue import make_queue_counter
-from ghostcash.publishing.channels import resolve_organization_id, sync_channels
+from ghostcash.publishing.channels import resolve_organization_id, sync_channels_if_stale
 from ghostcash.publishing.factory import get_media_host, get_publisher
 from ghostcash.publishing.media_host import MediaHostError
 from ghostcash.publishing.pipeline import PublishingSetupError, publish_batch, select_ready_content
@@ -249,8 +249,8 @@ def _publish_for_real(
         media_host = get_media_host(config)
         if not isinstance(publisher, BufferPublisher):
             return 0, "[info] publishing skipped - configured publisher isn't Buffer-based."
-        organization_id = resolve_organization_id(publisher, config)
-        sync_channels(publisher, conn, organization_id)
+        organization_id = resolve_organization_id(publisher, config, conn)
+        sync_channels_if_stale(publisher, conn, organization_id)
         notes: list[str] = []
         outcomes = publish_batch(
             publisher,

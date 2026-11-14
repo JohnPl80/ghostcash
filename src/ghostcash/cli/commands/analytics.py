@@ -11,6 +11,7 @@ path here.
 from __future__ import annotations
 
 import argparse
+import os
 import traceback
 
 from ghostcash.analytics.collector import collect_analytics, evaluate_winners
@@ -43,7 +44,7 @@ def run(args: argparse.Namespace) -> int:
         publisher = get_publisher(config)
         if not isinstance(publisher, BufferPublisher):
             raise PublisherError("Analytics collection is Buffer-specific today.")
-        collection = collect_analytics(publisher, conn)
+        collection = collect_analytics(publisher, conn, config.analytics.max_posts_per_run)
     except PublisherError as exc:
         fail_job(conn, job_id, str(exc), traceback.format_exc())
         conn.close()
@@ -62,6 +63,20 @@ def run(args: argparse.Namespace) -> int:
         f"{collection.posts_marked_sent} newly confirmed sent, "
         f"{collection.metrics_collected} with metrics collected."
     )
+    if collection.posts_skipped:
+        print(
+            f"{collection.posts_skipped} other tracked post(s) were not due yet or over the "
+            f"per-run limit of {config.analytics.max_posts_per_run} (Buffer API budget); "
+            "a later run checks them."
+        )
+    if collection.rate_limited:
+        message = (
+            "Buffer's API request allowance ran out during this run; the metrics collected "
+            "so far are saved and a later run continues."
+        )
+        print(f"[hold] {message}")
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            print(f"::warning title=Buffer request limit::{message}")
     if collection.posts_missing:
         print(
             f"{collection.posts_missing} tracked post(s) no longer exist in Buffer "

@@ -60,6 +60,15 @@ class AnalyticsConfig:
     target_click_rate: float = 5.0  # percent
     target_revenue_per_1000_views: float = 5.0  # same currency as product prices
 
+    # Buffer API budget for the daily metrics run (the free plan allows 1,000
+    # requests per channel per 30 days; GhostCash used them up on
+    # 2026-11-13 by checking every post every day). At most this many posts
+    # are checked per run, the most overdue first: a post younger than 3 days
+    # is due daily, up to 14 days every 3 days, up to 60 days weekly, older
+    # posts every 30 days. A scheduled post is checked only once its time has
+    # passed. 0 = no limit.
+    max_posts_per_run: int = 20
+
 
 @dataclass
 class PublishingConfig:

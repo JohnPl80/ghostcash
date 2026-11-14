@@ -29,7 +29,7 @@ def run(args: argparse.Namespace) -> int:
         issues.append(f"configuration error: {exc}")
 
     db_path = args.db_path or (config.database_path if config else None)
-    result = check_system(config, db_path)
+    result = check_system(config, db_path, check_buffer=not getattr(args, "skip_buffer", False))
     notes.extend(result.notes)
     issues.extend(result.issues)
 
