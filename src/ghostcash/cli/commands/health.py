@@ -11,6 +11,7 @@ here.
 from __future__ import annotations
 
 import argparse
+import os
 
 from ghostcash.config.loader import ConfigError, load_config
 from ghostcash.health import check_system
@@ -42,7 +43,19 @@ def run(args: argparse.Namespace) -> int:
         print("ATTENTION REQUIRED")
         for i, issue in enumerate(issues, start=1):
             print(f"  {i}. {issue}")
+        _annotate_on_github(issues)
         return 1
 
     print("RUNNING - NOTHING REQUIRED")
     return 0
+
+
+def _annotate_on_github(issues: list[str]) -> None:
+    """In GitHub Actions, also show each issue as an error annotation, so the
+    reason a run stopped is visible on the run page, in the failure email's
+    annotation list and through the API - not only inside the full log."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    for issue in issues:
+        text = " ".join(str(issue).split()).replace("%", "%25")
+        print(f"::error title=Health check::{text[:900]}")

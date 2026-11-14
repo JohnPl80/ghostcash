@@ -205,3 +205,16 @@ def test_job_recency_not_an_issue_when_no_jobs_have_run(tmp_path):
 
     assert any("no jobs have run yet" in note for note in result.notes)
     assert not any("job" in issue for issue in result.issues)
+
+
+def test_health_issues_become_github_annotations(monkeypatch, capsys):
+    from ghostcash.cli.commands.health import _annotate_on_github
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    _annotate_on_github(["Buffer API error: 401   unauthorized 100%"])
+    out = capsys.readouterr().out
+    assert out == "::error title=Health check::Buffer API error: 401 unauthorized 100%25\n"
+
+    monkeypatch.delenv("GITHUB_ACTIONS")
+    _annotate_on_github(["anything"])
+    assert capsys.readouterr().out == ""
