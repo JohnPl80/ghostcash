@@ -26,6 +26,7 @@ from pathlib import Path
 from ghostcash.config.schema import Config
 from ghostcash.content.script_cleanup import strip_repeated_hook_and_cta
 from ghostcash.models.content import Content
+from ghostcash.video.music import mix_music, pick_track
 from ghostcash.video.subtitles import write_ass_subtitles
 from ghostcash.video.templates import TEMPLATES_DIR, VideoTemplate, load_template
 from ghostcash.video.text_utils import chunk_evenly, split_sentences, wrap_text_to_width
@@ -450,6 +451,19 @@ def render_content(
                 _save_narration(audio_path, cache_path, video_cfg.ffmpeg_binary, content.id)
 
         total_duration = _probe_duration_seconds(audio_path, video_cfg.ffprobe_binary)
+        narration_seconds = total_duration
+        track = pick_track(video_cfg, content.id)
+        if track is not None:
+            mixed = mix_music(
+                Path(audio_path),
+                track,
+                narration_seconds,
+                work_path,
+                video_cfg,
+                _probe_duration_seconds,
+            )
+            if mixed is not None:
+                audio_path, total_duration = mixed
 
         scenes = _build_scenes(content, template)
         min_scene_seconds = template.fade_duration_seconds * 2 + 0.3
@@ -458,7 +472,7 @@ def render_content(
         ass_path = work_path / "subtitles.ass"
         write_ass_subtitles(
             full_narration,
-            total_duration,
+            narration_seconds,
             ass_path,
             width=video_cfg.width,
             height=video_cfg.height,

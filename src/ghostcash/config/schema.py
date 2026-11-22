@@ -282,6 +282,17 @@ class VideoConfig:
     # of folders would make GitHub ignore every earlier saved database.
     audio_cache_dir: str = "data/backups/audio"
 
+    # Background music (video/music.py). Empty = no music. One track per
+    # video, chosen by content id. The track's ending is lined up with the
+    # end of the video; it is levelled to music_target_lufs (well under the
+    # voice) and ducked while the narrator speaks.
+    music_files: list[str] = field(default_factory=list)
+    music_target_lufs: float = -26.0
+    music_fade_in_seconds: float = 1.5
+    music_fade_out_seconds: float = 1.2
+    music_tail_seconds: float = 1.5
+    music_duck: bool = True
+
     # section 61 Phase 4 / 62 DoD example: "5 videos rendered" per run.
     render_per_run: int = 5
     output_dir: str = "assets/generated"
