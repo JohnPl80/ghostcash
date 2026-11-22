@@ -81,6 +81,10 @@ video:
   render_per_run: 3
   tts_gemini_voice: Charon
   tts_gemini_style: "warm, quietly wondering storyteller, unhurried, like telling an old myth by candlelight"
+  # Owner (2026-11-22): music a bit louder than the default -24 LUFS. The
+  # voice is levelled to -16, so this sits about 4 LU under it (and dips a
+  # little more while the narrator speaks).
+  music_target_lufs: -20.0
   # Music files are not in this public repository (licence); the list stays
   # empty until the owner's track is stored safely.
   music_files: []
