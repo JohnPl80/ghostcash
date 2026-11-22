@@ -287,7 +287,8 @@ class VideoConfig:
     # end of the video; it is levelled to music_target_lufs (well under the
     # voice) and ducked while the narrator speaks.
     music_files: list[str] = field(default_factory=list)
-    music_target_lufs: float = -21.0
+    music_target_lufs: float = -24.0  # about 8 LU under the levelled voice
+    narration_target_lufs: float = -16.0  # voice level when music is mixed in
     music_fade_in_seconds: float = 1.5
     music_fade_out_seconds: float = 1.2
     music_tail_seconds: float = 1.5

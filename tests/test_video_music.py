@@ -45,6 +45,7 @@ def test_mix_filter_fades_delays_and_ducks():
     assert "volume=-9.50dB" in graph
     assert "sidechaincompress" in graph
     assert "normalize=0" in graph  # amix must not halve the voice
+    assert "alimiter" in graph
     assert "sidechaincompress" not in build_mix_filter(plan_music(30, 20), 20, 0, 1, 1, duck=False)
 
 
@@ -152,3 +153,9 @@ def test_missing_music_file_renders_without_music(tmp_path):
     result = render_content(_content(), cfg)
     audio_len = _probe_duration_seconds(result.output_path, "ffprobe")
     assert result.duration_seconds == pytest.approx(audio_len, abs=0.25)
+
+
+def test_voice_gain_is_applied_to_the_narration_only():
+    graph = build_mix_filter(plan_music(30.0, 20.0), 20.0, -9.0, 1, 1, duck=True, voice_gain_db=6.0)
+    voice_part = graph.split(";")[1]
+    assert voice_part.startswith("[0:a]") and "volume=6.00dB" in voice_part
