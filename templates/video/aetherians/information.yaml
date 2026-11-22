@@ -1,0 +1,39 @@
+# Aetherians - information template. Same scene structure as templates/video/information.yaml;
+# the look: the book illustrations moving slowly behind the text, Cormorant
+# Garamond (shipped in assets/fonts), parchment text with a brass accent line.
+
+description: "Hook, 2-3 supporting points, then a call to action."
+
+colors:
+  # Only used if a picture cannot be found.
+  background:
+    - "#17212B"
+    - "#1C2733"
+    - "#22303D"
+  cta_background: "#17212B"
+  text: "#F3EFE6"
+  accent: "#B89A62"
+
+font:
+  path: assets/fonts/cormorant/CormorantGaramond-Bold.ttf
+  family: Cormorant Garamond
+  size: 84
+  subtitle_size: 66
+  subtitle_margin: 420
+  border: 3
+
+scene_text: hook_and_cta
+
+background_images:
+  dir: assets/brands/aetherians/backgrounds
+  zoom: 0.10
+  dim: 0.30
+  exclude:
+    - cover_back
+
+transition:
+  duration_seconds: 0.4
+
+points:
+  min: 2
+  max: 3

@@ -1,0 +1,16 @@
+# Topic categories for "Aetherians" (see config/brands/aetherians.yaml).
+# The optimizer learns which of these perform best for this channel only.
+
+categories:
+  - key: ZODIAC
+    label: "Zodiac signs: their symbols, myths and traditional meanings"
+  - key: CRYSTALS
+    label: "Crystals and stones: what they are made of and what they stand for"
+  - key: CONSTELLATIONS
+    label: "Constellations and bright stars you can find in the sky"
+  - key: MYTHS
+    label: "Greek and other old sky myths behind the star names"
+  - key: SOUND
+    label: "Sound, singing bowls, tuning forks and quiet rituals"
+  - key: MOON
+    label: "The Moon, its phases and old traditions around them"

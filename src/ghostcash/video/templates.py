@@ -48,6 +48,19 @@ class VideoTemplate:
     fade_duration_seconds: float
     points_min: int
     points_max: int
+    # Optional picture backgrounds (Aetherians): a folder of images shown
+    # behind the scene text with a slow push-in, instead of flat colours.
+    background_image_dir: str | None = None
+    background_zoom: float = 0.08  # how far each picture zooms in over its scene
+    background_dim: float = 0.45  # dark veil over the picture so text stays readable
+    background_exclude: tuple[str, ...] = ()  # file-name parts never used (e.g. "cover_back")
+    text_border: int = 0  # dark outline around the big scene text, in pixels
+    accent_color: str | None = None  # thin line under the text on picture scenes
+    # "all": every scene shows its text in big letters. "hook_and_cta": only
+    # the opening line and the call to action do; the scenes between show the
+    # picture with just the spoken subtitles.
+    scene_text: str = "all"
+    subtitle_margin: int = 120  # subtitle distance from the bottom edge, in pixels
 
 
 def _require(raw: dict[str, Any], key: str, path: Path) -> Any:
@@ -75,9 +88,10 @@ def load_template(content_type: str, templates_dir: Path = TEMPLATES_DIR) -> Vid
     font = _require(raw, "font", path)
     transition = raw.get("transition", {}) or {}
     points = raw.get("points", {}) or {}
+    images = raw.get("background_images", {}) or {}
 
     try:
-        return VideoTemplate(
+        template = VideoTemplate(
             name=content_type,
             description=raw.get("description", ""),
             background_colors=list(_require(colors, "background", path)),
@@ -90,6 +104,17 @@ def load_template(content_type: str, templates_dir: Path = TEMPLATES_DIR) -> Vid
             fade_duration_seconds=float(transition.get("duration_seconds", 0.3)),
             points_min=int(points.get("min", 2)),
             points_max=int(points.get("max", 3)),
+            background_image_dir=str(images["dir"]) if images.get("dir") else None,
+            background_zoom=float(images.get("zoom", 0.08)),
+            background_dim=float(images.get("dim", 0.45)),
+            background_exclude=tuple(str(x) for x in images.get("exclude", []) or []),
+            text_border=int(font.get("border", 0)),
+            accent_color=str(colors["accent"]) if colors.get("accent") else None,
+            scene_text=str(raw.get("scene_text", "all")),
+            subtitle_margin=int(font.get("subtitle_margin", 120)),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise TemplateError(f"{path}: invalid template ({exc})") from exc
+    if template.scene_text not in ("all", "hook_and_cta"):
+        raise TemplateError(f"{path}: scene_text must be 'all' or 'hook_and_cta'")
+    return template

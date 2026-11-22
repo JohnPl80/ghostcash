@@ -1,0 +1,86 @@
+# "Aetherians" - zodiac, crystals, constellations, sky myths and sound, in the
+# style of the owner's Aetherians books (the DPF project).
+#
+# Starts from the main config/config.example.yaml and changes only what makes
+# this channel different. Its own database, videos, saved narration, Buffer
+# account and learning, all under data/backups/brands/aetherians/ (the
+# workflows only keep data/ghostcash.db and data/backups). Run any command for
+# this channel with:
+#
+#     ghostcash --config config/brands/aetherians.yaml <command>
+#
+# NOT yet in the scheduled workflows: it is added once the channel's Buffer
+# account and the BUFFER_API_KEY_AETHERIANS secret exist (see the setup
+# checklist).
+extends: ../config.example.yaml
+
+brand:
+  key: aetherians
+  name: "Aetherians"
+  description: >-
+    richly illustrated short videos about the zodiac, crystals, constellations,
+    the old myths behind the stars, and sound rituals: what each thing is, the
+    story or tradition around it, and one small way to enjoy it today
+  categories_file: config/brands/aetherians_categories.yaml
+  templates_dir: templates/video/aetherians
+  buffer_api_key_env: BUFFER_API_KEY_AETHERIANS
+
+database_path: data/backups/brands/aetherians/ghostcash.db
+
+backup:
+  backup_dir: data/backups/brands/aetherians/backups
+
+publishing:
+  posts_per_day: 2
+  youtube_category_id: "27"
+
+# Drafts first: every video waits in Buffer until the owner approves it.
+human_approval_mode:
+  publishing: APPROVAL_REQUIRED
+
+content:
+  topics_per_run: 12
+  content_per_run: 3
+  cta_guidance: >-
+    Ask the viewer only to follow Aetherians for the story behind every sign,
+    stone or star, or to save the video. Do not mention any link, 'link in
+    bio', a download, a book, a product, a course or a discount - none of those
+    are on sale yet.
+  writing_guidance: >-
+    One subject per video: one zodiac sign, one crystal, one constellation or
+    star, one myth, or one sound practice. Give one or two real facts (where
+    the stars are, what the stone is made of, who told the myth), then the
+    tradition or meaning people give it, clearly framed as tradition ("in
+    astrology", "in crystal practice", "the Greeks told"), never as proven
+    fact. End with one small, pleasant thing to try (look for the
+    constellation tonight, hold the stone to the light). Warm, wondering,
+    unhurried tone. No predictions about the viewer's future, no health,
+    healing, money or love promises, no fear.
+  forbidden_phrases:
+    - cure
+    - cures
+    - heal
+    - heals
+    - healing
+    - anxiety
+    - depression
+    - trauma
+    - medication
+    - diagnose
+    - guaranteed
+    - scientifically proven
+    - studies show
+    - manifest money
+    - manifest wealth
+    - get rich
+    - will happen to you
+
+video:
+  output_dir: assets/generated/aetherians
+  audio_cache_dir: data/backups/brands/aetherians/audio
+  render_per_run: 3
+  tts_gemini_voice: Charon
+  tts_gemini_style: "warm, quietly wondering storyteller, unhurried, like telling an old myth by candlelight"
+  # Music files are not in this public repository (licence); the list stays
+  # empty until the owner's track is stored safely.
+  music_files: []

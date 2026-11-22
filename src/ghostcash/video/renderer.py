@@ -17,6 +17,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import logging
+import random
+import re
 import sqlite3
 import subprocess
 import tempfile
@@ -66,6 +68,7 @@ class Scene:
     text: str
     background_color: str
     duration_seconds: float = 0.0
+    image: str | None = None  # picture background (templates with background_images)
 
 
 @dataclass
@@ -239,6 +242,67 @@ def _build_scenes(content: Content, template: VideoTemplate) -> list[Scene]:
     return scenes
 
 
+FPS = 25
+_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+# Words in picture file names too general to say what a video is about.
+_GENERIC_NAME_WORDS = {"cover", "front", "back", "black", "smoky", "clear", "rose", "ritual"}
+
+
+def _words(text: str) -> str:
+    return " " + " ".join(re.findall(r"[a-z]+", text.lower())) + " "
+
+
+def pick_backgrounds(content: Content, template: VideoTemplate, count: int) -> list[str]:
+    """Pictures for `count` scenes, or [] when the template has none.
+
+    A picture whose file name the video is about (leo.jpg for a Leo video,
+    lapis_lazuli.jpg for Lapis Lazuli) opens the video; the rest are drawn
+    from the folder in an order fixed by the content id, so a re-render looks
+    the same and neighbouring videos look different. The last scene (the call
+    to action) prefers a book's front cover."""
+    folder = template.background_image_dir
+    if not folder or count <= 0:
+        return []
+    root = Path(folder)
+    if not root.is_dir():
+        logger.warning("Background folder %s not found; using plain colours.", root)
+        return []
+    files = sorted(
+        f
+        for f in root.rglob("*")
+        if f.suffix.lower() in _IMAGE_SUFFIXES
+        and not any(part in f.stem for part in template.background_exclude)
+    )
+    if not files:
+        return []
+
+    about = _words(" ".join([content.topic or "", content.title or "", content.hook or ""]))
+
+    def relevance(f: Path) -> int:
+        name = f.stem.lower().replace("_", " ")
+        if f" {name} " in about:
+            return 2
+        tokens = [t for t in name.split() if len(t) >= 4 and t not in _GENERIC_NAME_WORDS]
+        return 1 if any(f" {t} " in about for t in tokens) else 0
+
+    rng = random.Random(content.id or 0)
+    covers = [f for f in files if "cover" in f.stem]
+    pool = [f for f in files if "cover" not in f.stem] or files
+    rng.shuffle(pool)
+    # Stable sort: pictures the video is about first, then others from the
+    # same book (same folder), then the rest in shuffled order.
+    best = max(pool, key=relevance)
+    book = best.parent if relevance(best) else None
+    pool.sort(key=lambda f: (relevance(f), f.parent == book), reverse=True)
+
+    picks = [pool[i % len(pool)] for i in range(count)]
+    if count > 1 and covers:
+        book = picks[0].parent
+        same_book = [c for c in covers if c.parent == book and "front" in c.stem]
+        picks[-1] = (same_book or covers)[0]
+    return [str(f) for f in picks]
+
+
 def _allocate_durations(
     scenes: list[Scene], total_duration: float, min_scene_seconds: float
 ) -> None:
@@ -270,15 +334,22 @@ def _build_filter_complex(
     width: int,
     height: int,
     work_dir: Path,
+    image_inputs: dict[int, int] | None = None,
 ) -> str:
+    """`image_inputs` maps a scene's index to the ffmpeg input number of its
+    picture (scenes with `image` set need one)."""
+    image_inputs = image_inputs or {}
     parts: list[str] = []
     scene_labels: list[str] = []
     fade_duration = template.fade_duration_seconds
     font_path = _escape_filter_path(template.font_path)
 
     for index, scene in enumerate(scenes):
+        shown = scene.text
+        if template.scene_text == "hook_and_cta" and 0 < index < len(scenes) - 1:
+            shown = ""  # the picture and the spoken subtitles carry this scene
         wrapped_text = wrap_text_to_width(
-            scene.text,
+            shown,
             font_path=template.font_path,
             font_size=template.font_size,
             max_width_px=int(width * 0.85),
@@ -286,10 +357,31 @@ def _build_filter_complex(
         lines = [line for line in wrapped_text.split("\n") if line.strip()] or [" "]
 
         bg_label, txt_label, out_label = f"bg{index}", f"txt{index}", f"scene{index}"
-        parts.append(
-            f"color=c={scene.background_color}:s={width}x{height}:"
-            f"d={scene.duration_seconds:.3f}[{bg_label}]"
-        )
+        if scene.image is not None:
+            input_index = image_inputs[index]
+            frames = max(1, round(scene.duration_seconds * FPS))
+            zoom = max(0.0, template.background_zoom)
+            # Alternate a slow push-in and a slow pull-back between scenes.
+            z = (
+                f"1+{zoom:.4f}*on/{frames}"
+                if index % 2 == 0
+                else f"{1 + zoom:.4f}-{zoom:.4f}*on/{frames}"
+            )
+            parts.append(
+                f"[{input_index}:v]scale={width * 2}:{height * 2}:"
+                f"force_original_aspect_ratio=increase,crop={width * 2}:{height * 2},"
+                f"zoompan=z='{z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+                f"d=1:s={width}x{height}:fps={FPS},setsar=1,"
+                f"trim=duration={scene.duration_seconds:.3f},"
+                # Darken brightness only (drawbox would also wash out the colour).
+                f"format=yuv420p,lutyuv=y='val*{1 - template.background_dim:.2f}'"
+                f"[{bg_label}]"
+            )
+        else:
+            parts.append(
+                f"color=c={scene.background_color}:s={width}x{height}:r={FPS}:"
+                f"d={scene.duration_seconds:.3f}[{bg_label}]"
+            )
         # One drawtext per line, so ffmpeg never sees a line-break
         # character: newer ffmpeg builds (GitHub's runners) draw it as a
         # box glyph at the end of the line. Each line is also centred on
@@ -297,6 +389,11 @@ def _build_filter_complex(
         line_height = template.font_size + _LINE_SPACING_PX
         block_top = f"(h-{len(lines) * line_height - _LINE_SPACING_PX})/2"
         draws: list[str] = []
+        border = (
+            f":borderw={template.text_border}:bordercolor=black@0.75"
+            if template.text_border > 0
+            else ""
+        )
         for line_index, line in enumerate(lines):
             line_path = work_dir / f"scene_{index}_line_{line_index}.txt"
             line_path.write_text(line, encoding="utf-8")
@@ -304,7 +401,13 @@ def _build_filter_complex(
                 f"drawtext=fontfile={font_path}:"
                 f"textfile={_escape_filter_path(str(line_path))}:"
                 f"fontsize={template.font_size}:fontcolor={template.text_color}:"
-                f"x=(w-text_w)/2:y={block_top}+{line_index * line_height}:box=0"
+                f"x=(w-text_w)/2:y={block_top}+{line_index * line_height}:box=0{border}"
+            )
+        if scene.image is not None and template.accent_color and shown.strip():
+            block_bottom = f"{block_top}+{len(lines) * line_height}"
+            draws.append(
+                f"drawbox=x=(iw-180)/2:y={block_bottom.replace('h', 'ih')}+24:w=180:h=3:"
+                f"color={template.accent_color}:t=fill"
             )
         parts.append(f"[{bg_label}]{','.join(draws)}[{txt_label}]")
         fade_out_start = max(0.0, scene.duration_seconds - fade_duration)
@@ -315,7 +418,13 @@ def _build_filter_complex(
         scene_labels.append(f"[{out_label}]")
 
     parts.append(f"{''.join(scene_labels)}concat=n={len(scenes)}:v=1:a=0[video_concat]")
-    parts.append(f"[video_concat]subtitles={_escape_filter_path(str(ass_path))}[final_video]")
+    # fontsdir: lets the subtitles use a font shipped in the repository
+    # (assets/fonts/...), not only fonts installed on the machine.
+    fonts_dir = _escape_filter_path(str(Path(template.font_path).resolve().parent))
+    parts.append(
+        f"[video_concat]subtitles={_escape_filter_path(str(ass_path))}:fontsdir={fonts_dir}"
+        "[final_video]"
+    )
     return ";".join(parts)
 
 
@@ -466,8 +575,21 @@ def render_content(
                 audio_path, total_duration = mixed
 
         scenes = _build_scenes(content, template)
+        for scene, image in zip(
+            scenes, pick_backgrounds(content, template, len(scenes)), strict=False
+        ):
+            scene.image = image
         min_scene_seconds = template.fade_duration_seconds * 2 + 0.3
         _allocate_durations(scenes, total_duration, min_scene_seconds)
+        image_inputs: dict[int, int] = {}
+        image_args: list[str] = []
+        for index, scene in enumerate(scenes):
+            if scene.image is not None:
+                image_inputs[index] = 1 + len(image_inputs)
+                image_args += [
+                    "-loop", "1", "-framerate", str(FPS),
+                    "-t", f"{scene.duration_seconds + 0.5:.3f}", "-i", scene.image,
+                ]  # fmt: skip
 
         ass_path = work_path / "subtitles.ass"
         write_ass_subtitles(
@@ -479,10 +601,17 @@ def render_content(
             font_family=template.font_family,
             font_size=template.subtitle_font_size,
             text_color=template.text_color,
+            margin_v=template.subtitle_margin,
         )
 
         filter_complex = _build_filter_complex(
-            scenes, template, ass_path, video_cfg.width, video_cfg.height, work_path
+            scenes,
+            template,
+            ass_path,
+            video_cfg.width,
+            video_cfg.height,
+            work_path,
+            image_inputs,
         )
 
         cmd = [
@@ -493,6 +622,7 @@ def render_content(
             "error",
             "-i",
             str(audio_path),
+            *image_args,
             "-filter_complex",
             filter_complex,
             "-map",

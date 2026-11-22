@@ -1,0 +1,63 @@
+name: Voice Sample
+
+# Manual only. Records a short narration with the Gemini voice for one or more
+# voices and attaches the .wav files to the "voice-samples" pre-release, so
+# voices and sample videos can be checked without a full nightly run.
+# Touches no database and no Buffer account.
+
+on:
+  workflow_dispatch:
+    inputs:
+      config:
+        description: "Channel config"
+        default: config/brands/aetherians.yaml
+      voices:
+        description: "Comma-separated Gemini voices (empty = the channel's voice)"
+        default: ""
+      name:
+        description: "File name prefix"
+        default: sample
+      text:
+        description: "What the narrator says"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install GhostCash
+        run: pip install -e .
+      - name: Record
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          CONFIG: ${{ inputs.config }}
+          VOICES: ${{ inputs.voices }}
+          NAME: ${{ inputs.name }}
+          TEXT: ${{ inputs.text }}
+        run: |
+          mkdir -p samples
+          IFS=',' read -ra list <<< "${VOICES:-default}"
+          for v in "${list[@]}"; do
+            v="$(echo "$v" | xargs)"
+            args=(--config "$CONFIG" voice-test --provider gemini --text "$TEXT" --output "samples/${NAME}-${v}.wav")
+            [ "$v" != "default" ] && args+=(--voice "$v")
+            ghostcash "${args[@]}" || echo "::warning::voice $v failed"
+            sleep 8
+          done
+          ls -la samples
+      - name: Attach to the voice-samples pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view voice-samples >/dev/null 2>&1 || \
+            gh release create voice-samples --prerelease --title "Voice samples" \
+              --notes "Narration samples from the Voice Sample workflow."
+          gh release upload voice-samples samples/*.wav --clobber
