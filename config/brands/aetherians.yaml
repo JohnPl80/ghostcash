@@ -83,6 +83,10 @@ video:
   # voice is levelled to -16, so this sits about 4 LU under it (and dips a
   # little more while the narrator speaks).
   music_target_lufs: -20.0
-  # Music files are not in this public repository (licence); the list stays
-  # empty until the owner's track is stored safely.
-  music_files: []
+  # The owner's own tracks (see assets/brands/aetherians/music/README.md).
+  music_files:
+    - assets/brands/aetherians/music/aetherians_01.mp3
+    - assets/brands/aetherians/music/aetherians_02.mp3
+    - assets/brands/aetherians/music/aetherians_03.mp3
+    - assets/brands/aetherians/music/aetherians_04.mp3
+    - assets/brands/aetherians/music/aetherians_05.mp3
