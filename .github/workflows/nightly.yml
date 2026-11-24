@@ -282,6 +282,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: scripts/brand_run.sh nightly
 
+      # Aetherians (config/brands/aetherians.yaml): third channel, same setup
+      # as Old Wisdom with its own Buffer account (secret
+      # BUFFER_API_KEY_AETHERIANS). Runs last, so the other two channels get
+      # the shared voice allowance first. Starts in draft mode
+      # (APPROVAL_REQUIRED): its videos wait in Buffer's Drafts.
+      - name: "Aetherians: nightly"
+        continue-on-error: true
+        env:
+          GHOSTCASH_CONFIG_PATH: config/brands/aetherians.yaml
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          BUFFER_API_KEY_AETHERIANS: ${{ secrets.BUFFER_API_KEY_AETHERIANS }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/brand_run.sh nightly
+
       # 14. Send alerts if required. GhostCash has no NotificationProvider
       # yet (section 38, not built in any phase so far) - this final
       # queue check is the real, zero-setup alert available today: if

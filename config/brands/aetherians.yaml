@@ -9,9 +9,7 @@
 #
 #     ghostcash --config config/brands/aetherians.yaml <command>
 #
-# NOT yet in the scheduled workflows: it is added once the channel's Buffer
-# account and the BUFFER_API_KEY_AETHERIANS secret exist (see the setup
-# checklist).
+# In the scheduled workflows since 2026-11-24 (after Old Wisdom).
 extends: ../config.example.yaml
 
 brand:

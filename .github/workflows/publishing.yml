@@ -197,6 +197,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: scripts/brand_run.sh publishing
 
+      # Aetherians (config/brands/aetherians.yaml): third channel, same setup
+      # as Old Wisdom with its own Buffer account (secret
+      # BUFFER_API_KEY_AETHERIANS). Runs last, so the other two channels get
+      # the shared voice allowance first. Starts in draft mode
+      # (APPROVAL_REQUIRED): its videos wait in Buffer's Drafts.
+      - name: "Aetherians: publishing"
+        continue-on-error: true
+        env:
+          GHOSTCASH_CONFIG_PATH: config/brands/aetherians.yaml
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          BUFFER_API_KEY_AETHERIANS: ${{ secrets.BUFFER_API_KEY_AETHERIANS }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/brand_run.sh publishing
+
       # Final queue check (section 22: "If queue falls below 1 day, send
       # an alert"). Not continue-on-error - this is the step whose exit
       # code is this job's real pass/fail signal. No NotificationProvider

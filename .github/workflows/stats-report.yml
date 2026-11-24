@@ -95,3 +95,19 @@ jobs:
         run: |
           ghostcash buffer-queue | tee queue.txt
           scripts/emit_notices.sh "Old Wisdom Buffer queue" queue.txt
+
+      - name: "Aetherians: statistics"
+        continue-on-error: true
+        env:
+          GHOSTCASH_CONFIG_PATH: config/brands/aetherians.yaml
+        run: |
+          ghostcash init > /dev/null
+          ghostcash stats --top 15 | tee stats.txt
+      - name: "Aetherians: Buffer queue"
+        continue-on-error: true
+        env:
+          GHOSTCASH_CONFIG_PATH: config/brands/aetherians.yaml
+          BUFFER_API_KEY_AETHERIANS: ${{ secrets.BUFFER_API_KEY_AETHERIANS }}
+        run: |
+          ghostcash buffer-queue | tee queue.txt
+          scripts/emit_notices.sh "Aetherians Buffer queue" queue.txt
