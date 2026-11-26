@@ -152,6 +152,7 @@ jobs:
           GHOSTCASH_CONFIG_PATH: config/brands/aetherians.yaml
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
           BUFFER_API_KEY_AETHERIANS: ${{ secrets.BUFFER_API_KEY_AETHERIANS }}
+          GUMROAD_API_KEY_AETHERIANS: ${{ secrets.GUMROAD_API_KEY_AETHERIANS }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: scripts/brand_run.sh analytics
 

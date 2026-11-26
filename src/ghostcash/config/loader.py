@@ -191,6 +191,10 @@ def _apply_env_overrides(config: Config) -> None:
     key_env = (config.brand.buffer_api_key_env or "BUFFER_API_KEY").strip()
     if key_env != "BUFFER_API_KEY":
         config.buffer_api_key = os.environ.get(key_env, "")
+    # Same rule for a brand with its own Gumroad shop.
+    shop_env = (config.brand.gumroad_api_key_env or "GUMROAD_API_KEY").strip()
+    if shop_env != "GUMROAD_API_KEY":
+        config.gumroad_api_key = os.environ.get(shop_env, "")
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -262,12 +266,14 @@ def validate_environment(features: list[str], config: Config | None = None) -> l
 
     With `config`, publishing checks the variable that channel actually
     uses (`brand.buffer_api_key_env`, e.g. BUFFER_API_KEY_OLDWISDOM) instead
-    of BUFFER_API_KEY."""
+    of BUFFER_API_KEY; products likewise checks `brand.gumroad_api_key_env`."""
     missing: list[str] = []
     for feature in features:
         for var in REQUIRED_ENV_BY_FEATURE.get(feature, []):
             if feature == "publishing" and var == "BUFFER_API_KEY" and config is not None:
                 var = (config.brand.buffer_api_key_env or "BUFFER_API_KEY").strip()
+            if feature == "products" and var == "GUMROAD_API_KEY" and config is not None:
+                var = (config.brand.gumroad_api_key_env or "GUMROAD_API_KEY").strip()
             if not os.environ.get(var):
                 missing.append(var)
     return missing

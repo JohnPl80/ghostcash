@@ -22,6 +22,8 @@ brand:
   categories_file: config/brands/aetherians_categories.yaml
   templates_dir: templates/video/aetherians
   buffer_api_key_env: BUFFER_API_KEY_AETHERIANS
+  # Its own Gumroad shop (aetherians.gumroad.com or similar).
+  gumroad_api_key_env: GUMROAD_API_KEY_AETHERIANS
 
 database_path: data/backups/brands/aetherians/ghostcash.db
 

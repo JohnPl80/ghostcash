@@ -338,3 +338,38 @@ def test_brand_publish_runs_with_only_its_own_key(tmp_path, monkeypatch, no_buff
     assert seen_keys == ["brand-key"]
     assert (tmp_path / "data" / "backups" / "brands" / "oldwisdom" / "ghostcash.db").exists()
     assert not (tmp_path / "data" / "ghostcash.db").exists()
+
+
+# ---------------------------------------------------------------------
+# A brand with its own Gumroad shop (Aetherians)
+# ---------------------------------------------------------------------
+
+AETHERIANS = REPO_ROOT / "config" / "brands" / "aetherians.yaml"
+
+
+@pytest.fixture()
+def no_shop_env(monkeypatch):
+    for name in ("GUMROAD_API_KEY", "GUMROAD_API_KEY_AETHERIANS", "GHOSTCASH_CONFIG_PATH"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_brand_reads_only_its_own_gumroad_key(monkeypatch, no_shop_env):
+    monkeypatch.setenv("GUMROAD_API_KEY", "main-shop-key")
+    config = load_config(AETHERIANS, load_env_file=False)
+    assert config.brand.gumroad_api_key_env == "GUMROAD_API_KEY_AETHERIANS"
+    assert config.gumroad_api_key == ""  # never the other shop's key
+    monkeypatch.setenv("GUMROAD_API_KEY_AETHERIANS", "aetherians-shop-key")
+    assert load_config(AETHERIANS, load_env_file=False).gumroad_api_key == "aetherians-shop-key"
+
+
+def test_main_and_oldwisdom_keep_the_shared_gumroad_key(monkeypatch, no_shop_env):
+    monkeypatch.setenv("GUMROAD_API_KEY", "main-shop-key")
+    assert load_config(OLDWISDOM, load_env_file=False).gumroad_api_key == "main-shop-key"
+
+
+def test_validate_environment_checks_the_brands_shop_key(monkeypatch, no_shop_env):
+    from ghostcash.config.loader import validate_environment
+
+    config = load_config(AETHERIANS, load_env_file=False)
+    assert validate_environment(["products"], config) == ["GUMROAD_API_KEY_AETHERIANS"]
+    assert validate_environment(["products"], Config()) == ["GUMROAD_API_KEY"]

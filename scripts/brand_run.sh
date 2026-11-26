@@ -19,14 +19,16 @@ mode="${1:-}"
 config="${GHOSTCASH_CONFIG_PATH:?GHOSTCASH_CONFIG_PATH must name the brand config file}"
 
 # The brand's Buffer key variable is named inside its config file.
-key_env=$(python - "$config" <<'PY'
+read -r key_env shop_env < <(python - "$config" <<'PY'
 import sys
 from ghostcash.config.loader import load_config
-print(load_config(sys.argv[1], load_env_file=False).brand.buffer_api_key_env)
+brand = load_config(sys.argv[1], load_env_file=False).brand
+print(brand.buffer_api_key_env, brand.gumroad_api_key_env)
 PY
 )
 has_ai_key=false; [ -n "${AI_API_KEY:-}" ] && has_ai_key=true
 has_buffer_key=false; [ -n "${!key_env:-}" ] && has_buffer_key=true
+has_shop_key=false; [ -n "${!shop_env:-}" ] && has_shop_key=true
 
 failed=0
 step() {
@@ -108,6 +110,12 @@ case "$mode" in
             step "Collect analytics" ghostcash analytics
         else
             echo "[skip] $key_env is not set - no analytics to collect."
+        fi
+        # The channel's own shop: new sales into its `orders` table.
+        if [ "$has_shop_key" = true ]; then
+            step "Sync shop sales" ghostcash products sync-sales
+        else
+            echo "[skip] $shop_env is not set - no shop sales to sync."
         fi
         ;;
     *)

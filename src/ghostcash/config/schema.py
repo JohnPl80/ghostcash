@@ -395,6 +395,11 @@ class BrandConfig:
     # never falls back to BUFFER_API_KEY, so its videos can never be posted
     # to another channel's account by mistake.
     buffer_api_key_env: str = "BUFFER_API_KEY"
+    # The environment variable that holds THIS channel's Gumroad API key. A
+    # brand with its own Gumroad account (its own shop) names its own
+    # variable and never falls back to GUMROAD_API_KEY, so its sales are
+    # never mixed with another channel's.
+    gumroad_api_key_env: str = "GUMROAD_API_KEY"
 
 
 @dataclass
