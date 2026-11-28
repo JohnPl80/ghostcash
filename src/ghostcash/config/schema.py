@@ -158,6 +158,11 @@ class ContentConfig:
     # safety net for when the AI ignores `cta_guidance`.
     reject_unavailable_offers: bool = True
 
+    # A line added to the end of every new caption, word for word (e.g. where
+    # the free sampler is). Unlike `cta_guidance`, which the AI interprets,
+    # this is guaranteed to appear. Empty = nothing added.
+    caption_footer: str = ""
+
     # Extra writing rules for this channel, added to the script prompt (tone,
     # what every video must contain). Empty = none.
     writing_guidance: str = ""

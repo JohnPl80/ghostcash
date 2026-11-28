@@ -145,6 +145,15 @@ def _performance_hint(hook_type: str | None, template: str | None) -> str:
     )
 
 
+def with_caption_footer(caption: str, footer: str) -> str:
+    """Append the channel's fixed caption line once (never twice)."""
+    footer = (footer or "").strip()
+    caption = caption.rstrip()
+    if not footer or footer.lower() in caption.lower():
+        return caption
+    return f"{caption}\n\n{footer}" if caption else footer
+
+
 def _cta_instruction(cta_guidance: str) -> str:
     guidance = (cta_guidance or "").strip()
     return f" Call to action: {guidance}" if guidance else ""
@@ -217,7 +226,7 @@ def generate_draft_for_topic(
         return GeneratedDraft(
             hook=str(result["hook"]),
             script=str(result["script"]),
-            caption=str(result["caption"]),
+            caption=with_caption_footer(str(result["caption"]), config.content.caption_footer),
             cta=str(result["cta"]),
             alternative_hook=str(result["alternative_hook"]),
             content_type=str(result["content_type"]),

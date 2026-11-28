@@ -41,11 +41,23 @@ human_approval_mode:
 content:
   topics_per_run: 12
   content_per_run: 3
+  # Shop live since 2026-11-28 (aetherians.gumroad.com, free sampler first in
+  # the Instagram and YouTube links). Owner asked for a catchy "link in bio"
+  # call to action on new videos.
   cta_guidance: >-
-    Ask the viewer only to follow Aetherians for the story behind every sign,
-    stone or star, or to save the video. Do not mention any link, 'link in
-    bio', a download, a book, a product, a course or a discount - none of those
-    are on sale yet.
+    One short spoken line (under 14 words) that points to the link in bio.
+    Match it to the video's subject: zodiac signs and astrology -> "The
+    Turning Zodiac" book; crystals, stones and sound -> "Crystals & Mystic
+    Frequencies"; constellations, stars and myths -> "The Orphic Sky";
+    anything else -> the free illustrated sampler. Alternate between offering
+    the free sampler and naming the matching book, for example "Want the
+    whole story of Leo? It's in The Turning Zodiac - link in bio." or "Free
+    illustrated sampler in the link in bio." Warm and curious, never pushy:
+    no urgency, no discounts, no "limited", no promises of results, and only
+    the sampler is ever called free. Never offer anything else (no comment
+    keywords, no messages, no courses, no newsletters).
+  reject_unavailable_offers: false
+  caption_footer: "✦ Free illustrated sampler + the full books: link in bio"
   writing_guidance: >-
     One subject per video: one zodiac sign, one crystal, one constellation or
     star, one myth, or one sound practice. Give one or two real facts (where

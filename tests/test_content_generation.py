@@ -193,3 +193,12 @@ def test_generate_scripts_zero_count_returns_empty_without_calling_ai(migrated_c
     result = generate_scripts(provider, migrated_conn, Config(), count=0)
     assert result == []
     assert provider.structured_calls == []
+
+
+def test_caption_footer_is_added_once():
+    from ghostcash.content.generation import with_caption_footer
+
+    footer = "✦ Free sampler: link in bio"
+    assert with_caption_footer("Leo and the Sun.", footer) == f"Leo and the Sun.\n\n{footer}"
+    assert with_caption_footer(f"Leo.\n\n{footer}", footer) == f"Leo.\n\n{footer}"
+    assert with_caption_footer("Leo.", "") == "Leo."
