@@ -373,3 +373,30 @@ def test_validate_environment_checks_the_brands_shop_key(monkeypatch, no_shop_en
     config = load_config(AETHERIANS, load_env_file=False)
     assert validate_environment(["products"], config) == ["GUMROAD_API_KEY_AETHERIANS"]
     assert validate_environment(["products"], Config()) == ["GUMROAD_API_KEY"]
+
+
+def test_sync_sales_runs_with_only_the_brands_shop_key(monkeypatch, no_shop_env, tmp_path):
+    # Regression (2026-11-28): `products sync-sales` checked GUMROAD_API_KEY
+    # instead of the channel's own GUMROAD_API_KEY_AETHERIANS.
+    from ghostcash.cli.commands import products as cmd
+    from ghostcash.database.connection import get_connection
+    from ghostcash.database.migrate import apply_migrations
+
+    monkeypatch.setenv("GUMROAD_API_KEY_AETHERIANS", "aetherians-shop-key")
+    config = load_config(AETHERIANS, load_env_file=False)
+    conn = get_connection(str(tmp_path / "g.db"))
+    apply_migrations(conn)
+    seen = {}
+
+    def fake_store(cfg):
+        seen["key"] = cfg.gumroad_api_key
+        return object()
+
+    class Result:
+        sales_seen = orders_created = orders_updated = 0
+        revenue_attributed = revenue_unattributed = 0.0
+
+    monkeypatch.setattr(cmd, "get_store", fake_store)
+    monkeypatch.setattr(cmd, "sync_orders", lambda store, c: Result())
+    assert cmd._sync_sales(config, conn) == 0
+    assert seen["key"] == "aetherians-shop-key"

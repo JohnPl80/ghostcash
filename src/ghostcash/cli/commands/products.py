@@ -179,7 +179,7 @@ def _reject(args: argparse.Namespace, conn) -> int:
 
 
 def _link(args: argparse.Namespace, config, conn) -> int:
-    missing = validate_environment(["products"])
+    missing = validate_environment(["products"], config)
     if missing:
         print(f"[error] missing required environment variable(s): {', '.join(missing)}")
         print("        set them in .env, then re-run `ghostcash products link`.")
@@ -200,7 +200,7 @@ def _link(args: argparse.Namespace, config, conn) -> int:
 
 
 def _sync_sales(config, conn) -> int:
-    missing = validate_environment(["products"])
+    missing = validate_environment(["products"], config)
     if missing:
         print(f"[error] missing required environment variable(s): {', '.join(missing)}")
         print("        set them in .env, then re-run `ghostcash products sync-sales`.")
